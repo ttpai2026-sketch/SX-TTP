@@ -71,6 +71,14 @@ export const NewItemModal: React.FC<NewItemModalProps> = ({
       return;
     }
 
+    const currentStock = Number(formData.currentStock);
+    const minStockThreshold = Number(formData.minStockThreshold);
+    if (!Number.isFinite(currentStock) || currentStock < 0 ||
+        !Number.isFinite(minStockThreshold) || minStockThreshold < 0) {
+      alert('Tồn kho hiện tại và tồn kho tối thiểu phải là số không âm.');
+      return;
+    }
+
     const finalItem: InventoryItem = {
       id: formData.id.toUpperCase(),
       name: formData.name,
@@ -78,13 +86,11 @@ export const NewItemModal: React.FC<NewItemModalProps> = ({
       location: formData.location || 'Kho A1',
       category: (formData.category as CategoryType) || 'Nguyên Liệu',
       initialStock: Number(formData.initialStock) || 0,
-      currentStock: Number(formData.currentStock) || 0,
+      currentStock,
       totalImport: itemToEdit?.totalImport || 0,
       totalExport: itemToEdit?.totalExport || 0,
       lastUpdated: 'Hôm nay, ' + new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-      minStockThreshold: formData.minStockThreshold === undefined
-        ? 50
-        : Number(formData.minStockThreshold),
+      minStockThreshold,
       specs: {
         dimensions: formData.specs?.dimensions || 'Tiêu chuẩn',
         material: formData.specs?.material || 'Chính phẩm',
@@ -211,10 +217,40 @@ export const NewItemModal: React.FC<NewItemModalProps> = ({
               <input
                 type="number"
                 min="0"
-                value={formData.currentStock || 0}
-                onChange={(e) => setFormData({ ...formData, currentStock: Number(e.target.value), initialStock: Number(e.target.value) })}
+                required
+                value={formData.currentStock ?? 0}
+                onChange={(e) => {
+                  const value = Number(e.target.value);
+                  setFormData({
+                    ...formData,
+                    currentStock: value,
+                    ...(!itemToEdit ? { initialStock: value } : {})
+                  });
+                }}
                 className="w-full bg-white border border-[#c1c6d6] rounded p-2.5 text-sm font-bold text-[#191c1d] focus:border-[#005bbf] outline-none"
               />
+            </div>
+
+            {/* Tồn Kho Tối Thiểu */}
+            <div>
+              <label className="text-[12px] font-bold text-[#515f74] uppercase tracking-wider block mb-1">
+                Số Lượng Tồn Kho Tối Thiểu
+              </label>
+              <input
+                id="input-min-stock-threshold"
+                type="number"
+                min="0"
+                required
+                value={formData.minStockThreshold ?? 50}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  minStockThreshold: Number(e.target.value)
+                })}
+                className="w-full bg-white border border-[#c1c6d6] rounded p-2.5 text-sm font-bold text-[#ba1a1a] focus:border-[#005bbf] outline-none"
+              />
+              <p className="mt-1 text-[11px] text-[#515f74]">
+                Cảnh báo khi tồn kho hiện tại nhỏ hơn hoặc bằng mức này.
+              </p>
             </div>
           </div>
 
