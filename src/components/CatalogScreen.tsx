@@ -76,14 +76,15 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
       const formulaSafe = /^[=+\-@]/.test(text) ? `'${text}` : text;
       return `"${formulaSafe.replace(/"/g, '""')}"`;
     };
-    const headers = ['Mã Hàng', 'Tên Hàng', 'Đơn Vị Tính', 'Vị Trí Lưu Kho', 'Loại Vật Tư', 'Tồn Kho'];
+    const headers = ['Mã Hàng', 'Tên Hàng', 'Tồn Kho', 'Tồn Tối Thiểu', 'Đơn Vị Tính', 'Vị Trí Lưu Kho', 'Loại Vật Tư'];
     const rows = items.map(it => [
       it.id,
       it.name,
+      it.currentStock,
+      it.minStockThreshold ?? 50,
       it.unit,
       it.location,
-      it.category,
-      it.currentStock
+      it.category
     ]);
     const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [
       headers.map(escapeCsv).join(','),
@@ -229,11 +230,13 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
 
         {/* Table */}
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[800px]">
+          <table className="w-full text-left border-collapse min-w-[1080px]">
             <thead>
               <tr className="bg-[#f3f4f5] border-b border-[#c1c6d6] text-[12px] font-bold text-[#191c1d] uppercase tracking-wider">
                 <th className="py-3 px-4 sticky left-0 bg-[#f3f4f5] z-10 w-32">Mã Hàng</th>
                 <th className="py-3 px-4">Tên Hàng</th>
+                <th className="py-3 px-4 text-right w-28">Tồn Kho</th>
+                <th className="py-3 px-4 text-right w-32">Tồn Tối Thiểu</th>
                 <th className="py-3 px-4 w-28">Đơn Vị Tính</th>
                 <th className="py-3 px-4 w-44">Vị Trí Lưu Kho</th>
                 <th className="py-3 px-4 w-36">Loại Vật Tư</th>
@@ -243,7 +246,7 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
             <tbody className="text-[13px]">
               {displayedItems.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-[#515f74]">
+                  <td colSpan={8} className="py-8 text-center text-[#515f74]">
                     Không tìm thấy mã hàng phù hợp với bộ lọc
                   </td>
                 </tr>
@@ -278,6 +281,24 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
                             </span>
                           )}
                         </div>
+                      </td>
+
+                      {/* Tồn Kho Hiện Tại */}
+                      <td
+                        onClick={() => onSelectItem(item.id)}
+                        className={`py-2.5 px-4 text-right font-bold ${
+                          isLow ? 'text-[#ba1a1a]' : 'text-[#006c4a]'
+                        }`}
+                      >
+                        {item.currentStock.toLocaleString('vi-VN')}
+                      </td>
+
+                      {/* Tồn Kho Tối Thiểu */}
+                      <td
+                        onClick={() => onSelectItem(item.id)}
+                        className="py-2.5 px-4 text-right font-semibold text-[#515f74]"
+                      >
+                        {(item.minStockThreshold ?? 50).toLocaleString('vi-VN')}
                       </td>
 
                       {/* Đơn Vị Tính */}
