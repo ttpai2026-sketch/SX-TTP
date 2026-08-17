@@ -529,7 +529,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
                       className="p-2.5 bg-[#005bbf] hover:bg-[#004493] text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
                     >
                       <Upload className="w-4 h-4" />
-                      <span>Xuất Dữ Liệu Lên Sheet</span>
+                      <span>App → Google Sheets</span>
                     </button>
 
                     <button
@@ -546,7 +546,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
                       className="p-2.5 bg-white border border-[#006c4a] text-[#006c4a] hover:bg-[#85f8c4]/20 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 cursor-pointer"
                     >
                       <Download className="w-4 h-4" />
-                      <span>Nạp Hàng Từ Sheet Vào App</span>
+                      <span>Google Sheets → App</span>
                     </button>
                   </div>
                 </div>
