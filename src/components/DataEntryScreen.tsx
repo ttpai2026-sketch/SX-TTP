@@ -1,13 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { HistoryRecord, InventoryItem, WeekCatalogItem } from '../types';
-import { Save, RotateCcw, Plus, CheckCircle, Info, RefreshCw, Pencil } from 'lucide-react';
+import { Save, RotateCcw, Plus, CheckCircle, Info, RefreshCw, Pencil, Loader2 } from 'lucide-react';
 
 interface DataEntryScreenProps {
   items: InventoryItem[];
   weeks: WeekCatalogItem[];
-  history: HistoryRecord[];
   onSaveSlip: (week: string, rows: { itemId: string; importQty: number; newStockQty: number; exportQty: number }[]) => void;
-  onUpdateSlip: (week: string, rows: { itemId: string; importQty: number; newStockQty: number; exportQty: number }[]) => boolean;
+  onLoadWeekFromSheet: (week: string) => Promise<HistoryRecord[]>;
+  onUpdateSlip: (
+    week: string,
+    rows: { itemId: string; importQty: number; newStockQty: number; exportQty: number }[],
+    sourceRecordIds: string[]
+  ) => Promise<HistoryRecord[]>;
   onNavigateToDetail: (itemId: string) => void;
 }
 
@@ -33,8 +37,8 @@ const createRows = (items: InventoryItem[]): FormRow[] =>
 export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
   items,
   weeks,
-  history,
   onSaveSlip,
+  onLoadWeekFromSheet,
   onUpdateSlip,
   onNavigateToDetail
 }) => {
@@ -49,6 +53,8 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
   const [selectedWeek, setSelectedWeek] = useState(defaultWeek);
   const [successMessage, setSuccessMessage] = useState('');
   const [loadedWeek, setLoadedWeek] = useState<string | null>(null);
+  const [loadedRecordIds, setLoadedRecordIds] = useState<string[]>([]);
+  const [isSheetWorking, setIsSheetWorking] = useState(false);
   const weekOptions = useMemo(
     () => [...weeks].sort((a, b) => a.year - b.year || a.code.localeCompare(b.code)),
     [weeks]
@@ -95,6 +101,7 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
   const handleReset = () => {
     setRows(createRows(items));
     setLoadedWeek(null);
+    setLoadedRecordIds([]);
     setSuccessMessage('');
   };
 
@@ -152,45 +159,56 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
     showSuccess(`Đã lưu thành công phiếu nhập liệu ${selectedWeek}! Dữ liệu kho đã được cập nhật.`);
   };
 
-  const handleLoadWeek = () => {
-    const savedRecords = history
-      .filter((record) => record.week === selectedWeek && record.id.startsWith('ENTRY-'))
-      .sort((a, b) => a.dateTime.localeCompare(b.dateTime));
+  const handleLoadWeek = async () => {
+    try {
+      setIsSheetWorking(true);
+      const savedRecords = (await onLoadWeekFromSheet(selectedWeek))
+        .filter((record) => record.week === selectedWeek)
+        .sort((a, b) => a.dateTime.localeCompare(b.dateTime));
 
-    if (savedRecords.length === 0) {
+      if (savedRecords.length === 0) {
+        setLoadedWeek(null);
+        setLoadedRecordIds([]);
+        alert(`Google Sheets chưa có dữ liệu của tuần ${selectedWeek}.`);
+        return;
+      }
+
+      const groupedRecords = new Map<string, HistoryRecord[]>();
+      savedRecords.forEach((record) => {
+        groupedRecords.set(record.itemId, [...(groupedRecords.get(record.itemId) || []), record]);
+      });
+
+      const loadedRows = Array.from(groupedRecords.entries()).map(([itemId, records]) => {
+        const firstRecord = records[0];
+        const lastRecord = records[records.length - 1];
+        const totalImport = records.reduce((sum, record) => sum + record.importQty, 0);
+        const totalExport = records.reduce((sum, record) => sum + record.exportQty, 0);
+        const item = items.find((candidate) => candidate.id === itemId);
+
+        return {
+          itemId,
+          name: item?.name || lastRecord.itemName || itemId,
+          initialStock: firstRecord.stockQty - firstRecord.importQty + firstRecord.exportQty,
+          importQty: String(totalImport),
+          newStockQty: String(lastRecord.stockQty),
+          calculatedExport: totalExport
+        };
+      });
+
+      setRows(loadedRows);
+      setLoadedWeek(selectedWeek);
+      setLoadedRecordIds(savedRecords.map((record) => record.id));
+      showSuccess(`Đã tải ${loadedRows.length} mã hàng của tuần ${selectedWeek} trực tiếp từ Google Sheets.`);
+    } catch (error: any) {
       setLoadedWeek(null);
-      alert(`Tuần ${selectedWeek} chưa có phiếu nhập liệu đã lưu để tải.`);
-      return;
+      setLoadedRecordIds([]);
+      alert(error.message || 'Không thể tải dữ liệu tuần từ Google Sheets.');
+    } finally {
+      setIsSheetWorking(false);
     }
-
-    const groupedRecords = new Map<string, HistoryRecord[]>();
-    savedRecords.forEach((record) => {
-      groupedRecords.set(record.itemId, [...(groupedRecords.get(record.itemId) || []), record]);
-    });
-
-    const loadedRows = Array.from(groupedRecords.entries()).map(([itemId, records]) => {
-      const firstRecord = records[0];
-      const lastRecord = records[records.length - 1];
-      const totalImport = records.reduce((sum, record) => sum + record.importQty, 0);
-      const totalExport = records.reduce((sum, record) => sum + record.exportQty, 0);
-      const item = items.find((candidate) => candidate.id === itemId);
-
-      return {
-        itemId,
-        name: item?.name || lastRecord.itemName || itemId,
-        initialStock: firstRecord.stockQty - firstRecord.importQty + firstRecord.exportQty,
-        importQty: String(totalImport),
-        newStockQty: String(lastRecord.stockQty),
-        calculatedExport: totalExport
-      };
-    });
-
-    setRows(loadedRows);
-    setLoadedWeek(selectedWeek);
-    showSuccess(`Đã tải ${loadedRows.length} dòng dữ liệu đã nhập của tuần ${selectedWeek}.`);
   };
 
-  const handleUpdate = () => {
+  const handleUpdate = async () => {
     if (loadedWeek !== selectedWeek) {
       alert('Vui lòng tải dữ liệu của tuần đã chọn trước khi cập nhật.');
       return;
@@ -198,12 +216,16 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
 
     const dataToUpdate = getValidatedRows();
     if (!dataToUpdate) return;
-    if (!onUpdateSlip(selectedWeek, dataToUpdate)) {
-      alert(`Không tìm thấy phiếu nhập liệu của tuần ${selectedWeek} để cập nhật.`);
-      return;
+    try {
+      setIsSheetWorking(true);
+      const updatedRecords = await onUpdateSlip(selectedWeek, dataToUpdate, loadedRecordIds);
+      setLoadedRecordIds(updatedRecords.map((record) => record.id));
+      showSuccess(`Đã cập nhật dữ liệu tuần ${selectedWeek} lên Google Sheets và đồng bộ lại App.`);
+    } catch (error: any) {
+      alert(error.message || `Không thể cập nhật dữ liệu tuần ${selectedWeek} lên Google Sheets.`);
+    } finally {
+      setIsSheetWorking(false);
     }
-
-    showSuccess(`Đã cập nhật dữ liệu tuần ${selectedWeek}. Tồn kho và lịch sử đã được điều chỉnh.`);
   };
 
   const handleAddItemToForm = (itemId: string) => {
@@ -260,6 +282,7 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
                 setSelectedWeek(e.target.value);
                 setRows(createRows(items));
                 setLoadedWeek(null);
+                setLoadedRecordIds([]);
                 setSuccessMessage('');
               }}
               className="bg-transparent border-none p-0 text-xs sm:text-[13px] font-bold text-[#005bbf] focus:ring-0 cursor-pointer outline-none"
@@ -414,9 +437,10 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
               id="btn-load-entry-week"
               type="button"
               onClick={handleLoadWeek}
-              className="px-3 sm:px-5 py-1.5 sm:py-2.5 border border-[#1a73e8] bg-white text-[#1557b0] hover:bg-[#e8f0fe] text-xs sm:text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-1 sm:gap-2 cursor-pointer"
+              disabled={isSheetWorking}
+              className="px-3 sm:px-5 py-1.5 sm:py-2.5 border border-[#1a73e8] bg-white text-[#1557b0] hover:bg-[#e8f0fe] disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-1 sm:gap-2 cursor-pointer"
             >
-              <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              {isSheetWorking ? <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
               <span>Tải dữ liệu tuần</span>
             </button>
           </div>
@@ -426,7 +450,7 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
               id="btn-update-entry"
               type="button"
               onClick={handleUpdate}
-              disabled={loadedWeek !== selectedWeek}
+              disabled={loadedWeek !== selectedWeek || isSheetWorking}
               title={loadedWeek === selectedWeek ? 'Cập nhật phiếu đã tải' : 'Tải dữ liệu tuần trước khi cập nhật'}
               className="bg-[#00875a] hover:bg-[#006c4a] disabled:bg-[#c1c6d6] disabled:text-[#727785] disabled:cursor-not-allowed text-white text-xs sm:text-[14px] font-bold px-3 sm:px-6 py-2 sm:py-3 rounded-lg flex items-center gap-1.5 sm:gap-2 transition-all active:scale-[0.98] cursor-pointer"
             >

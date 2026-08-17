@@ -277,6 +277,33 @@ export default function App() {
     }
   };
 
+  const handleLoadEntryWeekFromSheet = async (week: string): Promise<HistoryRecord[]> => {
+    if (!sheetConnection || !isSheetReady) {
+      setIsGoogleSheetsOpen(true);
+      throw new Error('Vui lòng kết nối Google Sheets trước khi tải dữ liệu tuần.');
+    }
+
+    try {
+      setIsManualSheetSyncing(true);
+      const sheetData = await loadGoogleSheetData(
+        sheetConnection.accessToken,
+        sheetConnection.spreadsheetId
+      );
+      handleImportDataFromSheet(sheetData.items, sheetData.history, sheetData.weeks);
+      const weekRecords = sheetData.history.filter((record) => record.week === week);
+      showSheetSyncNotice(
+        'success',
+        `Đã đọc Google Sheets và tìm thấy ${weekRecords.length} giao dịch của tuần ${week}.`
+      );
+      return weekRecords;
+    } catch (error: any) {
+      showSheetSyncNotice('error', error.message || 'Không thể tải dữ liệu tuần từ Google Sheets.');
+      throw error;
+    } finally {
+      setIsManualSheetSyncing(false);
+    }
+  };
+
   // Save Entry Form Slip
   const handleSaveEntrySlip = (
     week: string,
@@ -331,15 +358,23 @@ export default function App() {
     });
   };
 
-  const handleUpdateEntrySlip = (
+  const handleUpdateEntrySlip = async (
     week: string,
-    rows: { itemId: string; importQty: number; newStockQty: number; exportQty: number }[]
-  ) => {
-    const editableItemIds = new Set(rows.map((row) => row.itemId));
+    rows: { itemId: string; importQty: number; newStockQty: number; exportQty: number }[],
+    sourceRecordIds: string[]
+  ): Promise<HistoryRecord[]> => {
+    if (!sheetConnection || !isSheetReady) {
+      setIsGoogleSheetsOpen(true);
+      throw new Error('Vui lòng kết nối Google Sheets trước khi cập nhật dữ liệu tuần.');
+    }
+
+    const sourceIdSet = new Set(sourceRecordIds);
     const oldEntries = historyRecords.filter(
-      (record) => record.week === week && record.id.startsWith('ENTRY-') && editableItemIds.has(record.itemId)
+      (record) => record.week === week && sourceIdSet.has(record.id)
     );
-    if (oldEntries.length === 0) return false;
+    if (oldEntries.length === 0) {
+      throw new Error(`Không tìm thấy dữ liệu nguồn của tuần ${week}. Vui lòng tải lại dữ liệu tuần.`);
+    }
 
     const oldTotals = new Map<string, { importQty: number; exportQty: number }>();
     oldEntries.forEach((record) => {
@@ -373,14 +408,12 @@ export default function App() {
       };
     });
 
-    setHistoryRecords((previous) => [
+    const nextHistoryRecords = [
       ...replacementEntries,
-      ...previous.filter(
-        (record) => !(record.week === week && record.id.startsWith('ENTRY-') && editableItemIds.has(record.itemId))
-      )
-    ]);
+      ...historyRecords.filter((record) => !sourceIdSet.has(record.id))
+    ];
 
-    setItems((previous) => previous.map((item) => {
+    const nextItems = items.map((item) => {
       const updatedRow = rows.find((row) => row.itemId === item.id);
       if (!updatedRow) return item;
       const oldTotal = oldTotals.get(item.id) || { importQty: 0, exportQty: 0 };
@@ -393,9 +426,27 @@ export default function App() {
         totalExport: Math.max(0, item.totalExport + exportDelta),
         lastUpdated: 'Hôm nay, ' + new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
       };
-    }));
+    });
 
-    return true;
+    try {
+      setIsManualSheetSyncing(true);
+      await syncToGoogleSheet(
+        sheetConnection.accessToken,
+        sheetConnection.spreadsheetId,
+        nextItems,
+        nextHistoryRecords,
+        weekCatalog
+      );
+      setHistoryRecords(nextHistoryRecords);
+      setItems(nextItems);
+      showSheetSyncNotice('success', `Đã cập nhật tuần ${week} lên Google Sheets và đồng bộ lại App.`);
+      return replacementEntries;
+    } catch (error: any) {
+      showSheetSyncNotice('error', error.message || `Không thể cập nhật tuần ${week} lên Google Sheets.`);
+      throw error;
+    } finally {
+      setIsManualSheetSyncing(false);
+    }
   };
 
   // Create Quick Transaction Slip
@@ -521,8 +572,8 @@ export default function App() {
             <DataEntryScreen
               items={items}
               weeks={weekCatalog}
-              history={historyRecords}
               onSaveSlip={handleSaveEntrySlip}
+              onLoadWeekFromSheet={handleLoadEntryWeekFromSheet}
               onUpdateSlip={handleUpdateEntrySlip}
               onNavigateToDetail={handleSelectItemDetail}
             />
