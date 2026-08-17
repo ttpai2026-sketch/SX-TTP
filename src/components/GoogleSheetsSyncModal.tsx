@@ -56,6 +56,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
     `QuanLy_NhaKhuon_Tuan${new Date().toISOString().slice(0, 10)}`
   );
   const [isCreatingNew, setIsCreatingNew] = useState(false);
+  const [needsReauth, setNeedsReauth] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState<{
     action: 'export' | 'import' | 'create';
     title: string;
@@ -74,7 +75,15 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
       setIsLoading(true);
       setStatusMessage(null);
       const token = await getAccessToken();
-      if (!token) return;
+      if (!token) {
+        setNeedsReauth(true);
+        setStatusMessage({
+          type: 'info',
+          text: 'Phiên Google Drive cần được kết nối lại sau khi tải lại trang.'
+        });
+        return;
+      }
+      setNeedsReauth(false);
       const list = await listUserSpreadsheets(token);
       setSpreadsheets(list);
       if (list.length > 0 && !selectedSpreadsheetId) {
@@ -96,6 +105,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
       setStatusMessage(null);
       const res = await googleSignIn();
       if (res) {
+        setNeedsReauth(false);
         onUserChanged(res.user);
         const list = await listUserSpreadsheets(res.accessToken);
         setSpreadsheets(list);
@@ -122,6 +132,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
     onUserChanged(null);
     setSpreadsheets([]);
     setSelectedSpreadsheetId('');
+    setNeedsReauth(false);
     setStatusMessage({
       type: 'info',
       text: 'Đã ngắt kết nối tài khoản Google'
@@ -338,15 +349,28 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
                   </div>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={handleSignOut}
-                className="text-xs text-[#ba1a1a] hover:bg-[#ffdad6] px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1 transition-colors"
-                title="Đăng xuất tài khoản Google"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Đăng xuất</span>
-              </button>
+              <div className="flex items-center gap-1">
+                {needsReauth && (
+                  <button
+                    type="button"
+                    onClick={handleSignIn}
+                    disabled={isLoading}
+                    className="text-xs text-[#005bbf] hover:bg-[#d5e3fc] px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1 transition-colors"
+                  >
+                    <LogIn className="w-3.5 h-3.5" />
+                    <span>Kết nối lại</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="text-xs text-[#ba1a1a] hover:bg-[#ffdad6] px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1 transition-colors"
+                  title="Đăng xuất tài khoản Google"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Đăng xuất</span>
+                </button>
+              </div>
             </div>
           )}
 

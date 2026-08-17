@@ -15,6 +15,16 @@ import { NotificationModal } from './components/NotificationModal';
 import { GoogleSheetsSyncModal } from './components/GoogleSheetsSyncModal';
 import { subscribeToAuthChanges, User } from './services/auth';
 
+const getCurrentWeekCode = () => {
+  const now = new Date();
+  const utcDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  const day = utcDate.getUTCDay() || 7;
+  utcDate.setUTCDate(utcDate.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(utcDate.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((utcDate.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `W${String(week).padStart(2, '0')}`;
+};
+
 export default function App() {
   // Auth state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -94,6 +104,10 @@ export default function App() {
 
   // Handlers for Data Changes
   const handleSaveItem = (item: InventoryItem) => {
+    if (!itemToEdit && items.some((existing) => existing.id === item.id)) {
+      alert(`Mã hàng ${item.id} đã tồn tại. Vui lòng dùng mã khác.`);
+      return false;
+    }
     setItems((prev) => {
       const existsIndex = prev.findIndex((i) => i.id === item.id);
       if (existsIndex >= 0) {
@@ -104,9 +118,14 @@ export default function App() {
         return [item, ...prev];
       }
     });
+    return true;
   };
 
   const handleDeleteItem = (itemId: string) => {
+    if (historyRecords.some((record) => record.itemId === itemId)) {
+      alert('Không thể xóa mã hàng đã có lịch sử nhập/xuất. Hãy giữ mã để bảo toàn dữ liệu kiểm toán.');
+      return;
+    }
     setItems((prev) => prev.filter((i) => i.id !== itemId));
     if (selectedItemId === itemId) {
       const remaining = items.filter((i) => i.id !== itemId);
@@ -135,10 +154,12 @@ export default function App() {
     week: string,
     rows: { itemId: string; importQty: number; newStockQty: number; exportQty: number }[]
   ) => {
+    const changedRows = rows.filter((r) => r.importQty > 0 || r.exportQty > 0);
+    if (changedRows.length === 0) return;
+
     const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
 
-    const newHistoryEntries: HistoryRecord[] = rows
-      .filter((r) => r.importQty > 0 || r.exportQty > 0)
+    const newHistoryEntries: HistoryRecord[] = changedRows
       .map((r, i) => {
         const it = items.find((item) => item.id === r.itemId);
         return {
@@ -163,7 +184,7 @@ export default function App() {
     // Update items current stock
     setItems((prev) => {
       return prev.map((it) => {
-        const matchingRow = rows.find((r) => r.itemId === it.id);
+        const matchingRow = changedRows.find((r) => r.itemId === it.id);
         if (matchingRow) {
           return {
             ...it,
@@ -186,19 +207,22 @@ export default function App() {
     quantity: number;
     notes: string;
   }) => {
-    const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
     const it = items.find((i) => i.id === slipData.itemId);
-    const itemName = it ? it.name : slipData.itemId;
-    const currentStock = it ? it.currentStock : 0;
+    if (!it || slipData.quantity <= 0) return;
+    if (slipData.type === 'Xuất' && slipData.quantity > it.currentStock) return;
+
+    const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const itemName = it.name;
+    const currentStock = it.currentStock;
     const newStock =
       slipData.type === 'Nhập'
         ? currentStock + slipData.quantity
-        : Math.max(0, currentStock - slipData.quantity);
+        : currentStock - slipData.quantity;
 
     const newRecord: HistoryRecord = {
       id: `SLIP-${Date.now()}`,
       dateTime: timestamp,
-      week: 'W44',
+      week: getCurrentWeekCode(),
       itemId: slipData.itemId,
       itemName,
       importQty: slipData.type === 'Nhập' ? slipData.quantity : 0,
@@ -232,7 +256,7 @@ export default function App() {
     items.find((i) => i.id === selectedItemId) || items[0] || INITIAL_ITEMS[0];
 
   const lowStockCount = items.filter(
-    (it) => it.currentStock <= (it.minStockThreshold || 50)
+    (it) => it.currentStock <= (it.minStockThreshold ?? 50)
   ).length;
 
   return (
@@ -296,6 +320,7 @@ export default function App() {
           {currentScreen === 'detail' && (
             <ItemDetailScreen
               item={selectedItem}
+              history={historyRecords.filter((record) => record.itemId === selectedItem.id)}
               onBack={() => setCurrentScreen('catalog')}
               onEdit={handleOpenEditItem}
               onViewAllHistory={() => setCurrentScreen('history')}
@@ -305,6 +330,7 @@ export default function App() {
           {currentScreen === 'report' && (
             <ReportScreen
               items={items}
+              history={historyRecords}
               onNavigateToDetail={handleSelectItemDetail}
               onOpenGoogleSheets={() => setIsGoogleSheetsOpen(true)}
             />

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { InventoryItem } from '../types';
 import { Save, RotateCcw, Plus, CheckCircle, Info } from 'lucide-react';
 
@@ -17,25 +17,48 @@ interface FormRow {
   calculatedExport: number;
 }
 
+const getWeekNumber = (date: Date) => {
+  const utcDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = utcDate.getUTCDay() || 7;
+  utcDate.setUTCDate(utcDate.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(utcDate.getUTCFullYear(), 0, 1));
+  return Math.ceil(((utcDate.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+};
+
+const createRows = (items: InventoryItem[]): FormRow[] =>
+  items.slice(0, 6).map((item) => ({
+    itemId: item.id,
+    name: item.name,
+    initialStock: item.currentStock,
+    importQty: '',
+    newStockQty: '',
+    calculatedExport: 0
+  }));
+
 export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
   items,
   onSaveSlip,
   onNavigateToDetail
 }) => {
-  const [selectedWeek, setSelectedWeek] = useState('44');
+  const currentWeek = getWeekNumber(new Date());
+  const [selectedWeek, setSelectedWeek] = useState(String(currentWeek));
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const weekOptions = useMemo(
+    () => Array.from({ length: 6 }, (_, index) => String(Math.max(1, currentWeek - index))),
+    [currentWeek]
+  );
 
   // Initialize rows from current items (default top 6 from mock)
-  const [rows, setRows] = useState<FormRow[]>(() => {
-    return items.slice(0, 6).map((item) => ({
-      itemId: item.id,
-      name: item.name,
-      initialStock: item.currentStock,
-      importQty: '',
-      newStockQty: '',
-      calculatedExport: 0
-    }));
-  });
+  const [rows, setRows] = useState<FormRow[]>(() => createRows(items));
+
+  useEffect(() => {
+    setRows((currentRows) => {
+      const hasUnsavedInput = currentRows.some(
+        (row) => row.importQty !== '' || row.newStockQty !== ''
+      );
+      return hasUnsavedInput ? currentRows : createRows(items);
+    });
+  }, [items]);
 
   const handleInputChange = (
     index: number,
@@ -58,16 +81,7 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
   };
 
   const handleReset = () => {
-    setRows(
-      items.slice(0, 6).map((item) => ({
-        itemId: item.id,
-        name: item.name,
-        initialStock: item.currentStock,
-        importQty: '',
-        newStockQty: '',
-        calculatedExport: 0
-      }))
-    );
+    setRows(createRows(items));
   };
 
   const handleSave = () => {
@@ -78,7 +92,37 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
       exportQty: r.calculatedExport
     }));
 
+    const invalidRow = rows.find((row) => {
+      const imported = parseFloat(row.importQty) || 0;
+      const countedStock = row.newStockQty === ''
+        ? row.initialStock + imported
+        : parseFloat(row.newStockQty);
+      return imported < 0 || !Number.isFinite(countedStock) || countedStock < 0 || countedStock > row.initialStock + imported;
+    });
+    if (invalidRow) {
+      alert(`Dữ liệu mã ${invalidRow.itemId} không hợp lệ. Tồn mới không thể âm hoặc lớn hơn Tồn cũ + Nhập.`);
+      return;
+    }
+
+    const changedRows = dataToSave.filter((row) => row.importQty > 0 || row.exportQty > 0);
+    if (changedRows.length === 0) {
+      alert('Chưa có số lượng nhập hoặc xuất để lưu.');
+      return;
+    }
+
     onSaveSlip(`Tuần ${selectedWeek}`, dataToSave);
+    setRows((currentRows) =>
+      currentRows.map((row) => {
+        const saved = dataToSave.find((candidate) => candidate.itemId === row.itemId);
+        return {
+          ...row,
+          initialStock: saved?.newStockQty ?? row.initialStock,
+          importQty: '',
+          newStockQty: '',
+          calculatedExport: 0
+        };
+      })
+    );
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3500);
   };
@@ -134,10 +178,9 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
               onChange={(e) => setSelectedWeek(e.target.value)}
               className="bg-transparent border-none p-0 text-xs sm:text-[13px] font-bold text-[#005bbf] focus:ring-0 cursor-pointer outline-none"
             >
-              <option value="44">Tuần 44 (28/10 - 03/11)</option>
-              <option value="45">Tuần 45 (04/11 - 10/11)</option>
-              <option value="46">Tuần 46 (11/11 - 17/11)</option>
-              <option value="47">Tuần 47 (18/11 - 24/11)</option>
+              {weekOptions.map((week) => (
+                <option key={week} value={week}>Tuần {week}</option>
+              ))}
             </select>
           </div>
 

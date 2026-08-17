@@ -7,6 +7,19 @@ export interface GoogleDriveSpreadsheet {
   webViewLink?: string;
 }
 
+const parseSheetNumber = (value: string | undefined, fallback = 0) => {
+  if (value === undefined || value.trim() === '') return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const readGoogleError = async (response: Response, fallback: string) => {
+  const data = await response.json().catch(() => ({}));
+  return data.error?.message || `${fallback} (${response.status})`;
+};
+
+const quoteSheetTitle = (title: string) => `'${title.replace(/'/g, "''")}'`;
+
 /**
  * List existing Google Sheets in user's Google Drive
  */
@@ -109,7 +122,7 @@ export async function createNhaKhuonSpreadsheet(
     it.totalImport,
     it.totalExport,
     it.currentStock,
-    it.minStockThreshold || 50,
+    it.minStockThreshold ?? 50,
     it.specs?.dimensions || '',
     it.specs?.material || '',
     it.specs?.standardWeight || '',
@@ -146,7 +159,7 @@ export async function createNhaKhuonSpreadsheet(
   ]);
 
   // Batch update values
-  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+  const valuesRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -166,6 +179,10 @@ export async function createNhaKhuonSpreadsheet(
       ]
     })
   });
+
+  if (!valuesRes.ok) {
+    throw new Error(await readGoogleError(valuesRes, 'Đã tạo file nhưng không thể ghi dữ liệu'));
+  }
 
   return { spreadsheetId, spreadsheetUrl };
 }
@@ -206,7 +223,7 @@ export async function syncToGoogleSheet(
     it.totalImport,
     it.totalExport,
     it.currentStock,
-    it.minStockThreshold || 50,
+    it.minStockThreshold ?? 50,
     it.specs?.dimensions || '',
     it.specs?.material || '',
     it.specs?.standardWeight || '',
@@ -252,7 +269,7 @@ export async function syncToGoogleSheet(
   }
 
   const metaData = await metaRes.json();
-  const sheetTitles = (metaData.sheets || []).map((s: { properties: { title: string } }) => s.properties.title);
+  let sheetTitles = (metaData.sheets || []).map((s: { properties: { title: string } }) => s.properties.title);
 
   let targetInventorySheet = 'TonKho_TongHop';
   if (!sheetTitles.includes('TonKho_TongHop')) {
@@ -260,19 +277,45 @@ export async function syncToGoogleSheet(
     targetInventorySheet = sheetTitles[0] || 'Sheet1';
   }
 
+
+  if (!sheetTitles.includes('LichSu_NhapXuat')) {
+    const addSheetRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          requests: [{
+            addSheet: {
+              properties: {
+                title: 'LichSu_NhapXuat',
+                gridProperties: { frozenRowCount: 1 }
+              }
+            }
+          }]
+        })
+      }
+    );
+    if (!addSheetRes.ok) {
+      throw new Error(await readGoogleError(addSheetRes, 'Không thể tạo sheet lịch sử'));
+    }
+    sheetTitles = [...sheetTitles, 'LichSu_NhapXuat'];
+  }
+
   const updates: Array<{ range: string; values: (string | number)[][] }> = [
     {
-      range: `${targetInventorySheet}!A1:N${inventoryRows.length + 1}`,
+      range: `${quoteSheetTitle(targetInventorySheet)}!A1:N${inventoryRows.length + 1}`,
       values: [inventoryHeaders, ...inventoryRows]
     }
   ];
 
-  if (sheetTitles.includes('LichSu_NhapXuat')) {
-    updates.push({
-      range: `LichSu_NhapXuat!A1:K${historyRows.length + 1}`,
-      values: [historyHeaders, ...historyRows]
-    });
-  }
+  updates.push({
+    range: `${quoteSheetTitle('LichSu_NhapXuat')}!A1:K${historyRows.length + 1}`,
+    values: [historyHeaders, ...historyRows]
+  });
 
   const updateRes = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
@@ -292,6 +335,27 @@ export async function syncToGoogleSheet(
   if (!updateRes.ok) {
     const err = await updateRes.json().catch(() => ({}));
     throw new Error(err.error?.message || `Không thể cập nhật Google Sheet (${updateRes.status})`);
+  }
+
+  // Only clear rows below the newly written data after a successful update.
+  const clearRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchClear`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        ranges: [
+          `${quoteSheetTitle(targetInventorySheet)}!A${inventoryRows.length + 2}:N`,
+          `${quoteSheetTitle('LichSu_NhapXuat')}!A${historyRows.length + 2}:K`
+        ]
+      })
+    }
+  );
+  if (!clearRes.ok) {
+    throw new Error(await readGoogleError(clearRes, 'Đã ghi dữ liệu mới nhưng không thể xóa các dòng cũ phía dưới'));
   }
 }
 
@@ -318,7 +382,7 @@ export async function importFromGoogleSheet(
   const sheetTitle = tonKhoSheet?.properties?.title || 'Sheet1';
 
   const valuesRes = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetTitle)}!A1:Z500`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(`${quoteSheetTitle(sheetTitle)}!A1:Z500`)}`,
     {
       headers: { Authorization: `Bearer ${accessToken}` }
     }
@@ -347,11 +411,11 @@ export async function importFromGoogleSheet(
     const category = (r[2]?.trim() as any) || 'Nguyên Liệu';
     const unit = r[3]?.trim() || 'Cái';
     const location = r[4]?.trim() || 'Kho Nhà Khuôn';
-    const initialStock = parseFloat(r[5]) || 0;
-    const totalImport = parseFloat(r[6]) || 0;
-    const totalExport = parseFloat(r[7]) || 0;
-    const currentStock = parseFloat(r[8]) || (initialStock + totalImport - totalExport);
-    const minStockThreshold = parseFloat(r[9]) || 50;
+    const initialStock = parseSheetNumber(r[5]);
+    const totalImport = parseSheetNumber(r[6]);
+    const totalExport = parseSheetNumber(r[7]);
+    const currentStock = parseSheetNumber(r[8], initialStock + totalImport - totalExport);
+    const minStockThreshold = parseSheetNumber(r[9], 50);
     const dimensions = r[10] || '';
     const material = r[11] || '';
     const standardWeight = r[12] || '';

@@ -1,15 +1,17 @@
-import React, { useState } from 'react';
-import { InventoryItem } from '../types';
+import React, { useMemo, useState } from 'react';
+import { HistoryRecord, InventoryItem } from '../types';
 import { Download, RefreshCw, BarChart2 } from 'lucide-react';
 
 interface ReportScreenProps {
   items: InventoryItem[];
+  history: HistoryRecord[];
   onNavigateToDetail: (itemId: string) => void;
   onOpenGoogleSheets?: () => void;
 }
 
 export const ReportScreen: React.FC<ReportScreenProps> = ({
   items,
+  history,
   onNavigateToDetail,
   onOpenGoogleSheets
 }) => {
@@ -18,21 +20,60 @@ export const ReportScreen: React.FC<ReportScreenProps> = ({
   const [monthFilter, setMonthFilter] = useState('full');
   const [filterApplied, setFilterApplied] = useState(false);
 
-  const reportItems = items.map((item) => {
-    // Dynamic calculations based on item initialStock, totalImport, totalExport
-    const tonDau = item.initialStock || 150;
-    const luyKeNhap = item.totalImport || 50;
-    const luyKeXuat = item.totalExport || 20;
-    const tonCuoi = tonDau + luyKeNhap - luyKeXuat;
+  const weekOptions = useMemo(
+    () => Array.from(new Set<string>(history.map((record) => record.week.replace(/\D/g, ''))))
+      .filter(Boolean)
+      .sort((a, b) => Number(a) - Number(b)),
+    [history]
+  );
+  const monthOptions = useMemo(
+    () => Array.from(new Set<string>(history.map((record) => record.dateTime.slice(0, 7))))
+      .filter((month) => /^\d{4}-\d{2}$/.test(month))
+      .sort()
+      .reverse(),
+    [history]
+  );
+  const hasPeriodFilter = monthFilter !== 'full' || fromWeek !== '' || toWeek !== '';
+
+  const reportItems = useMemo(() => items.map((item) => {
+    if (!hasPeriodFilter) {
+      return {
+        ...item,
+        tonDau: item.initialStock,
+        luyKeNhap: item.totalImport,
+        luyKeXuat: item.totalExport,
+        tonCuoi: item.currentStock
+      };
+    }
+
+    const itemHistory = history.filter((record) => record.itemId === item.id);
+    const selectedRecords = itemHistory.filter((record) => {
+      if (monthFilter !== 'full') return record.dateTime.startsWith(monthFilter);
+      const week = Number(record.week.replace(/\D/g, ''));
+      const from = fromWeek ? Number(fromWeek) : 1;
+      const to = toWeek ? Number(toWeek) : 53;
+      return week >= from && week <= to;
+    });
+    const earlierRecords = itemHistory.filter((record) => {
+      if (monthFilter !== 'full') return record.dateTime.slice(0, 7) < monthFilter;
+      const week = Number(record.week.replace(/\D/g, ''));
+      return week < (fromWeek ? Number(fromWeek) : 1);
+    });
+    const tonDau = earlierRecords.reduce(
+      (stock, record) => stock + record.importQty - record.exportQty,
+      item.initialStock
+    );
+    const luyKeNhap = selectedRecords.reduce((sum, record) => sum + record.importQty, 0);
+    const luyKeXuat = selectedRecords.reduce((sum, record) => sum + record.exportQty, 0);
 
     return {
       ...item,
       tonDau,
       luyKeNhap,
       luyKeXuat,
-      tonCuoi: tonCuoi > 0 ? tonCuoi : item.currentStock
+      tonCuoi: tonDau + luyKeNhap - luyKeXuat
     };
-  });
+  }), [fromWeek, hasPeriodFilter, history, items, monthFilter, toWeek]);
 
   // Calculate totals
   const totalTonDau = reportItems.reduce((acc, curr) => acc + curr.tonDau, 0);
@@ -41,10 +82,15 @@ export const ReportScreen: React.FC<ReportScreenProps> = ({
   const totalTonCuoi = reportItems.reduce((acc, curr) => acc + curr.tonCuoi, 0);
 
   const handleExportExcel = () => {
+    const escapeCsv = (value: string | number) => {
+      const text = String(value);
+      const formulaSafe = /^[=+\-@]/.test(text) ? `'${text}` : text;
+      return `"${formulaSafe.replace(/"/g, '""')}"`;
+    };
     const headers = ['Mã Hàng', 'Tên Hàng', 'Đơn Vị', 'Tồn Đầu', 'Lũy Kế Nhập', 'Lũy Kế Xuất', 'Tồn Cuối'];
     const rows = reportItems.map(it => [
       it.id,
-      `"${it.name}"`,
+      it.name,
       it.unit,
       it.tonDau,
       it.luyKeNhap,
@@ -54,9 +100,9 @@ export const ReportScreen: React.FC<ReportScreenProps> = ({
     const summaryRow = ['Tổng Cộng', '', '', totalTonDau, totalNhap, totalXuat, totalTonCuoi];
 
     const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [
-      headers.join(','), 
-      ...rows.map(e => e.join(',')),
-      summaryRow.join(',')
+      headers.map(escapeCsv).join(','),
+      ...rows.map(row => row.map(escapeCsv).join(',')),
+      summaryRow.map(escapeCsv).join(',')
     ].join('\n');
 
     const encodedUri = encodeURI(csvContent);
@@ -102,9 +148,9 @@ export const ReportScreen: React.FC<ReportScreenProps> = ({
               className="bg-white border border-[#c1c6d6] rounded p-2 text-[13px] text-[#191c1d] focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf] outline-none"
             >
               <option value="">Tất cả</option>
-              <option value="42">Tuần 42 (14/10 - 20/10)</option>
-              <option value="43">Tuần 43 (21/10 - 27/10)</option>
-              <option value="44">Tuần 44 (28/10 - 03/11)</option>
+              {weekOptions.map((week) => (
+                <option key={week} value={week}>Tuần {week}</option>
+              ))}
             </select>
           </div>
 
@@ -120,9 +166,9 @@ export const ReportScreen: React.FC<ReportScreenProps> = ({
               className="bg-white border border-[#c1c6d6] rounded p-2 text-[13px] text-[#191c1d] focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf] outline-none"
             >
               <option value="">Tất cả</option>
-              <option value="42">Tuần 42 (14/10 - 20/10)</option>
-              <option value="43">Tuần 43 (21/10 - 27/10)</option>
-              <option value="44">Tuần 44 (28/10 - 03/11)</option>
+              {weekOptions.map((week) => (
+                <option key={week} value={week}>Tuần {week}</option>
+              ))}
             </select>
           </div>
 
@@ -138,9 +184,10 @@ export const ReportScreen: React.FC<ReportScreenProps> = ({
               className="bg-white border border-[#c1c6d6] rounded p-2 text-[13px] text-[#191c1d] focus:border-[#005bbf] focus:ring-1 focus:ring-[#005bbf] outline-none"
             >
               <option value="full">Full dữ liệu</option>
-              <option value="10-2023">Tháng 10/2023</option>
-              <option value="09-2023">Tháng 09/2023</option>
-              <option value="08-2023">Tháng 08/2023</option>
+              {monthOptions.map((month) => {
+                const [year, value] = month.split('-');
+                return <option key={month} value={month}>Tháng {value}/{year}</option>;
+              })}
             </select>
           </div>
         </div>

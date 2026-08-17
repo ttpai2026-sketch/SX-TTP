@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { HistoryRecord } from '../types';
 import { Eye, Search, Filter, ChevronLeft, ChevronRight, CheckCircle } from 'lucide-react';
 
@@ -38,6 +38,15 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
   );
 
   const totalImportSum = records.reduce((acc, curr) => acc + curr.importQty, 0);
+  const totalSlips = new Set(records.map((record) => record.documentCode || record.id)).size;
+  const weekOptions = useMemo(
+    () => Array.from(new Set(records.map((record) => record.week))).sort().reverse(),
+    [records]
+  );
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
 
   return (
     <div className="space-y-6">
@@ -57,7 +66,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
             Tổng số phiếu
           </span>
           <span className="text-[24px] font-bold text-[#005bbf]">
-            {records.length > 4 ? records.length : 24}
+            {totalSlips}
           </span>
         </div>
 
@@ -67,7 +76,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
             Tổng lượng nhập
           </span>
           <span className="text-[24px] font-bold text-[#191c1d]">
-            {totalImportSum > 500 ? totalImportSum.toLocaleString('vi-VN') : '1,250'}
+            {totalImportSum.toLocaleString('vi-VN')}
           </span>
         </div>
 
@@ -86,7 +95,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
           </span>
           <span className="text-[24px] font-bold text-[#006c4a] flex items-center gap-1">
             <CheckCircle className="w-5 h-5 text-[#006c4a]" />
-            100%
+            —
           </span>
         </div>
       </div>
@@ -120,9 +129,9 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
             className="bg-[#f3f4f5] border border-[#c1c6d6] rounded py-2 px-3 text-[13px] text-[#191c1d] focus:border-[#005bbf] outline-none cursor-pointer"
           >
             <option value="all">Tất cả các tuần</option>
-            <option value="W44">Tuần 44 (W44)</option>
-            <option value="W43">Tuần 43 (W43)</option>
-            <option value="W42">Tuần 42 (W42)</option>
+            {weekOptions.map((week) => (
+              <option key={week} value={week}>{week.replace('W', 'Tuần ')} ({week})</option>
+            ))}
           </select>
         </div>
       </div>
@@ -206,7 +215,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
         <div className="px-4 py-3 flex items-center justify-between border-t border-[#c1c6d6] bg-white text-xs text-[#515f74]">
           <span>
             Hiển thị {displayedRecords.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}-
-            {Math.min(currentPage * itemsPerPage, filteredRecords.length)} trên {records.length > 4 ? records.length : 24} kết quả
+            {Math.min(currentPage * itemsPerPage, filteredRecords.length)} trên {filteredRecords.length} kết quả
           </span>
 
           <div className="flex items-center gap-2">
