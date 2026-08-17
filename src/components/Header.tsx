@@ -1,6 +1,6 @@
 import React from 'react';
 import { ScreenType } from '../types';
-import { Search, Bell, User, Menu, FileSpreadsheet } from 'lucide-react';
+import { Search, Bell, User, Menu, FileSpreadsheet, Upload, Download, Loader2 } from 'lucide-react';
 import { User as FirebaseUser } from 'firebase/auth';
 
 interface HeaderProps {
@@ -11,6 +11,10 @@ interface HeaderProps {
   onOpenNotifications: () => void;
   onOpenMobileMenu: () => void;
   onOpenGoogleSheets?: () => void;
+  onPushToGoogleSheets?: () => void;
+  onPullFromGoogleSheets?: () => void;
+  isGoogleSheetsConnected?: boolean;
+  isGoogleSheetsSyncing?: boolean;
   currentUser?: FirebaseUser | null;
   unreadCount?: number;
 }
@@ -23,12 +27,16 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenNotifications,
   onOpenMobileMenu,
   onOpenGoogleSheets,
+  onPushToGoogleSheets,
+  onPullFromGoogleSheets,
+  isGoogleSheetsConnected = false,
+  isGoogleSheetsSyncing = false,
   currentUser,
   unreadCount = 2
 }) => {
   return (
-    <header className="bg-white border-b border-[#c1c6d6] flex justify-between items-center w-full px-6 h-14 shrink-0 sticky top-0 z-30 shadow-xs">
-      <div className="flex items-center gap-6 h-full">
+    <header className="bg-white border-b border-[#c1c6d6] flex justify-between items-center w-full px-2 sm:px-4 md:px-6 h-14 shrink-0 sticky top-0 z-30 shadow-xs">
+      <div className="flex items-center gap-2 md:gap-6 h-full min-w-0">
         {/* Mobile Hamburger */}
         <button
           id="btn-mobile-menu-toggle"
@@ -44,7 +52,7 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={() => onNavigate('catalog')}
           className="text-[20px] font-bold text-[#005bbf] cursor-pointer flex items-center gap-2 select-none"
         >
-          <span>Nhà Khuôn</span>
+          <span className="hidden sm:inline">Nhà Khuôn</span>
         </div>
 
         {/* Desktop Top Sub-nav Links */}
@@ -93,7 +101,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Right Controls */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-1 sm:gap-3 md:gap-4 shrink-0">
         {/* Quick Search */}
         <div className="relative hidden md:block">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#727785]" />
@@ -115,21 +123,46 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* Google Sheets Trigger */}
-        {onOpenGoogleSheets && (
-          <button
-            id="btn-header-google-sheets"
-            onClick={onOpenGoogleSheets}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#85f8c4]/30 hover:bg-[#85f8c4]/60 text-[#004e35] border border-[#006c4a]/30 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-            title="Mở bảng điều khiển đồng bộ Google Sheets"
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-[#006c4a]" />
-            <span className="hidden sm:inline">Google Sheets</span>
-          </button>
-        )}
+        {/* Google Sheets quick sync */}
+        <div className="flex items-center rounded-lg border border-[#006c4a]/30 overflow-hidden bg-white">
+          {onPushToGoogleSheets && (
+            <button
+              id="btn-app-to-google-sheets"
+              onClick={onPushToGoogleSheets}
+              disabled={isGoogleSheetsSyncing}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[#004e35] hover:bg-[#85f8c4]/30 text-xs font-semibold transition-colors disabled:opacity-50"
+              title={isGoogleSheetsConnected ? 'Đẩy dữ liệu từ App lên Google Sheets' : 'Kết nối Google Sheets để đồng bộ'}
+            >
+              {isGoogleSheetsSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+              <span className="hidden lg:inline">App → Sheet</span>
+            </button>
+          )}
+          {onPullFromGoogleSheets && (
+            <button
+              id="btn-google-sheets-to-app"
+              onClick={onPullFromGoogleSheets}
+              disabled={isGoogleSheetsSyncing}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 border-l border-[#006c4a]/20 text-[#005bbf] hover:bg-[#d5e3fc]/40 text-xs font-semibold transition-colors disabled:opacity-50"
+              title={isGoogleSheetsConnected ? 'Tải dữ liệu mới nhất từ Google Sheets vào App' : 'Kết nối Google Sheets để đồng bộ'}
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span className="hidden lg:inline">Sheet → App</span>
+            </button>
+          )}
+          {onOpenGoogleSheets && (
+            <button
+              id="btn-header-google-sheets"
+              onClick={onOpenGoogleSheets}
+              className="p-1.5 border-l border-[#006c4a]/20 text-[#006c4a] hover:bg-[#85f8c4]/30 transition-colors"
+              title="Cài đặt kết nối Google Sheets"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
 
         {/* User Info & Actions */}
-        <div className="flex items-center gap-3 border-l border-[#c1c6d6] pl-4">
+        <div className="flex items-center gap-1 sm:gap-3 border-l border-[#c1c6d6] pl-1 sm:pl-4">
           <span className="text-[12px] font-semibold text-[#191c1d] hidden sm:block truncate max-w-[100px]">
             {currentUser?.displayName ? currentUser.displayName.split(' ')[0] : 'Hệ Thống'}
           </span>

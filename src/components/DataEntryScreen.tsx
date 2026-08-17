@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { InventoryItem, WeekCatalogItem } from '../types';
-import { Save, RotateCcw, Plus, CheckCircle, Info } from 'lucide-react';
+import { HistoryRecord, InventoryItem, WeekCatalogItem } from '../types';
+import { Save, RotateCcw, Plus, CheckCircle, Info, RefreshCw, Pencil } from 'lucide-react';
 
 interface DataEntryScreenProps {
   items: InventoryItem[];
   weeks: WeekCatalogItem[];
+  history: HistoryRecord[];
   onSaveSlip: (week: string, rows: { itemId: string; importQty: number; newStockQty: number; exportQty: number }[]) => void;
+  onUpdateSlip: (week: string, rows: { itemId: string; importQty: number; newStockQty: number; exportQty: number }[]) => boolean;
   onNavigateToDetail: (itemId: string) => void;
 }
 
@@ -31,7 +33,9 @@ const createRows = (items: InventoryItem[]): FormRow[] =>
 export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
   items,
   weeks,
+  history,
   onSaveSlip,
+  onUpdateSlip,
   onNavigateToDetail
 }) => {
   const today = new Date();
@@ -43,7 +47,8 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
   )?.code || weeks.find((week) => week.status === 'Đang mở')?.code || weeks[0]?.code || '';
   const defaultWeek = getDefaultWeek();
   const [selectedWeek, setSelectedWeek] = useState(defaultWeek);
-  const [savedSuccess, setSavedSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [loadedWeek, setLoadedWeek] = useState<string | null>(null);
   const weekOptions = useMemo(
     () => [...weeks].sort((a, b) => a.year - b.year || a.code.localeCompare(b.code)),
     [weeks]
@@ -89,9 +94,11 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
 
   const handleReset = () => {
     setRows(createRows(items));
+    setLoadedWeek(null);
+    setSuccessMessage('');
   };
 
-  const handleSave = () => {
+  const getValidatedRows = () => {
     const dataToSave = rows.map((r) => ({
       itemId: r.itemId,
       importQty: parseFloat(r.importQty) || 0,
@@ -108,8 +115,20 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
     });
     if (invalidRow) {
       alert(`Dữ liệu mã ${invalidRow.itemId} không hợp lệ. Tồn mới không thể âm hoặc lớn hơn Tồn cũ + Nhập.`);
-      return;
+      return null;
     }
+
+    return dataToSave;
+  };
+
+  const showSuccess = (message: string) => {
+    setSuccessMessage(message);
+    window.setTimeout(() => setSuccessMessage(''), 3500);
+  };
+
+  const handleSave = () => {
+    const dataToSave = getValidatedRows();
+    if (!dataToSave) return;
 
     const changedRows = dataToSave.filter((row) => row.importQty > 0 || row.exportQty > 0);
     if (changedRows.length === 0) {
@@ -130,8 +149,61 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
         };
       })
     );
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 3500);
+    showSuccess(`Đã lưu thành công phiếu nhập liệu ${selectedWeek}! Dữ liệu kho đã được cập nhật.`);
+  };
+
+  const handleLoadWeek = () => {
+    const savedRecords = history
+      .filter((record) => record.week === selectedWeek && record.id.startsWith('ENTRY-'))
+      .sort((a, b) => a.dateTime.localeCompare(b.dateTime));
+
+    if (savedRecords.length === 0) {
+      setLoadedWeek(null);
+      alert(`Tuần ${selectedWeek} chưa có phiếu nhập liệu đã lưu để tải.`);
+      return;
+    }
+
+    const groupedRecords = new Map<string, HistoryRecord[]>();
+    savedRecords.forEach((record) => {
+      groupedRecords.set(record.itemId, [...(groupedRecords.get(record.itemId) || []), record]);
+    });
+
+    const loadedRows = Array.from(groupedRecords.entries()).map(([itemId, records]) => {
+      const firstRecord = records[0];
+      const lastRecord = records[records.length - 1];
+      const totalImport = records.reduce((sum, record) => sum + record.importQty, 0);
+      const totalExport = records.reduce((sum, record) => sum + record.exportQty, 0);
+      const item = items.find((candidate) => candidate.id === itemId);
+
+      return {
+        itemId,
+        name: item?.name || lastRecord.itemName || itemId,
+        initialStock: firstRecord.stockQty - firstRecord.importQty + firstRecord.exportQty,
+        importQty: String(totalImport),
+        newStockQty: String(lastRecord.stockQty),
+        calculatedExport: totalExport
+      };
+    });
+
+    setRows(loadedRows);
+    setLoadedWeek(selectedWeek);
+    showSuccess(`Đã tải ${loadedRows.length} dòng dữ liệu đã nhập của tuần ${selectedWeek}.`);
+  };
+
+  const handleUpdate = () => {
+    if (loadedWeek !== selectedWeek) {
+      alert('Vui lòng tải dữ liệu của tuần đã chọn trước khi cập nhật.');
+      return;
+    }
+
+    const dataToUpdate = getValidatedRows();
+    if (!dataToUpdate) return;
+    if (!onUpdateSlip(selectedWeek, dataToUpdate)) {
+      alert(`Không tìm thấy phiếu nhập liệu của tuần ${selectedWeek} để cập nhật.`);
+      return;
+    }
+
+    showSuccess(`Đã cập nhật dữ liệu tuần ${selectedWeek}. Tồn kho và lịch sử đã được điều chỉnh.`);
   };
 
   const handleAddItemToForm = (itemId: string) => {
@@ -159,11 +231,11 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
   return (
     <div className="max-w-5xl mx-auto flex flex-col h-full space-y-3 sm:space-y-4">
       {/* Toast Notification */}
-      {savedSuccess && (
+      {successMessage && (
         <div className="bg-[#85f8c4] border border-[#006c4a] text-[#002114] px-3 py-2 sm:px-4 sm:py-3 rounded-lg flex items-center gap-2 sm:gap-3 shadow-md animate-in fade-in slide-in-from-top-2 duration-300">
           <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5 text-[#006c4a] shrink-0" />
           <div className="text-xs sm:text-sm font-semibold">
-            Đã lưu thành công phiếu nhập liệu {selectedWeek}! Dữ liệu kho đã được cập nhật.
+            {successMessage}
           </div>
         </div>
       )}
@@ -184,7 +256,12 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
             <select
               id="select-entry-week"
               value={selectedWeek}
-              onChange={(e) => setSelectedWeek(e.target.value)}
+              onChange={(e) => {
+                setSelectedWeek(e.target.value);
+                setRows(createRows(items));
+                setLoadedWeek(null);
+                setSuccessMessage('');
+              }}
               className="bg-transparent border-none p-0 text-xs sm:text-[13px] font-bold text-[#005bbf] focus:ring-0 cursor-pointer outline-none"
             >
               {weekOptions.map((week) => (
@@ -322,26 +399,52 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
         )}
 
         {/* Bottom Actions Bar */}
-        <div className="bg-[#f3f4f5] border-t border-[#c1c6d6] p-2.5 sm:p-4 flex justify-between items-center mt-auto">
-          <button
-            id="btn-cancel-entry"
-            type="button"
-            onClick={handleReset}
-            className="px-3 sm:px-6 py-1.5 sm:py-2.5 border border-[#727785] text-[#515f74] hover:bg-[#e1e3e4] text-xs sm:text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-1 sm:gap-2 cursor-pointer"
-          >
-            <RotateCcw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            <span>Hủy bỏ</span>
-          </button>
+        <div className="bg-[#f3f4f5] border-t border-[#c1c6d6] p-2.5 sm:p-4 flex flex-wrap justify-between items-center gap-2 mt-auto">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              id="btn-cancel-entry"
+              type="button"
+              onClick={handleReset}
+              className="px-3 sm:px-5 py-1.5 sm:py-2.5 border border-[#727785] text-[#515f74] hover:bg-[#e1e3e4] text-xs sm:text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-1 sm:gap-2 cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <span>Hủy bỏ</span>
+            </button>
+            <button
+              id="btn-load-entry-week"
+              type="button"
+              onClick={handleLoadWeek}
+              className="px-3 sm:px-5 py-1.5 sm:py-2.5 border border-[#1a73e8] bg-white text-[#1557b0] hover:bg-[#e8f0fe] text-xs sm:text-[13px] font-semibold rounded-lg transition-colors flex items-center gap-1 sm:gap-2 cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <span>Tải dữ liệu tuần</span>
+            </button>
+          </div>
 
-          <button
-            id="btn-save-entry"
-            type="button"
-            onClick={handleSave}
-            className="bg-[#1a73e8] hover:bg-[#1557b0] text-white text-xs sm:text-[15px] font-bold px-4 sm:px-8 py-2 sm:py-3 rounded-lg flex items-center gap-1.5 sm:gap-2 transition-all shadow-[0_4px_12px_rgba(26,115,232,0.25)] active:scale-[0.98] cursor-pointer"
-          >
-            <Save className="w-4 h-4 sm:w-5 sm:h-5" />
-            <span>Lưu Phiếu</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              id="btn-update-entry"
+              type="button"
+              onClick={handleUpdate}
+              disabled={loadedWeek !== selectedWeek}
+              title={loadedWeek === selectedWeek ? 'Cập nhật phiếu đã tải' : 'Tải dữ liệu tuần trước khi cập nhật'}
+              className="bg-[#00875a] hover:bg-[#006c4a] disabled:bg-[#c1c6d6] disabled:text-[#727785] disabled:cursor-not-allowed text-white text-xs sm:text-[14px] font-bold px-3 sm:px-6 py-2 sm:py-3 rounded-lg flex items-center gap-1.5 sm:gap-2 transition-all active:scale-[0.98] cursor-pointer"
+            >
+              <Pencil className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span>Cập nhật dữ liệu</span>
+            </button>
+            <button
+              id="btn-save-entry"
+              type="button"
+              onClick={handleSave}
+              disabled={loadedWeek === selectedWeek}
+              title={loadedWeek === selectedWeek ? 'Dùng nút Cập nhật dữ liệu cho phiếu đã tải' : 'Lưu phiếu mới'}
+              className="bg-[#1a73e8] hover:bg-[#1557b0] disabled:bg-[#c1c6d6] disabled:text-[#727785] disabled:cursor-not-allowed text-white text-xs sm:text-[15px] font-bold px-4 sm:px-8 py-2 sm:py-3 rounded-lg flex items-center gap-1.5 sm:gap-2 transition-all shadow-[0_4px_12px_rgba(26,115,232,0.25)] active:scale-[0.98] cursor-pointer"
+            >
+              <Save className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span>Lưu Phiếu</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

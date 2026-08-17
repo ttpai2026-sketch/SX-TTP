@@ -125,6 +125,11 @@ export default function App() {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isGoogleSheetsOpen, setIsGoogleSheetsOpen] = useState(false);
+  const [isManualSheetSyncing, setIsManualSheetSyncing] = useState(false);
+  const [sheetSyncNotice, setSheetSyncNotice] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
 
   // Navigation Helpers
   const handleNavigate = (screen: ScreenType) => {
@@ -221,6 +226,57 @@ export default function App() {
     setIsSheetReady(false);
   };
 
+  const showSheetSyncNotice = (type: 'success' | 'error', text: string) => {
+    setSheetSyncNotice({ type, text });
+    window.setTimeout(() => setSheetSyncNotice(null), 5000);
+  };
+
+  const handlePushToGoogleSheets = async () => {
+    if (!sheetConnection) {
+      setIsGoogleSheetsOpen(true);
+      return;
+    }
+    if (!window.confirm('Đẩy toàn bộ dữ liệu hiện tại từ App lên Google Sheets? Dữ liệu các bảng liên kết sẽ được cập nhật.')) return;
+
+    try {
+      setIsManualSheetSyncing(true);
+      await syncToGoogleSheet(
+        sheetConnection.accessToken,
+        sheetConnection.spreadsheetId,
+        items,
+        historyRecords,
+        weekCatalog
+      );
+      showSheetSyncNotice('success', `Đã cập nhật ${items.length} mã hàng và ${historyRecords.length} giao dịch lên Google Sheets.`);
+    } catch (error: any) {
+      showSheetSyncNotice('error', error.message || 'Không thể cập nhật dữ liệu lên Google Sheets.');
+    } finally {
+      setIsManualSheetSyncing(false);
+    }
+  };
+
+  const handlePullFromGoogleSheets = async () => {
+    if (!sheetConnection) {
+      setIsGoogleSheetsOpen(true);
+      return;
+    }
+    if (!window.confirm('Tải dữ liệu mới nhất từ Google Sheets? Dữ liệu đang hiển thị trong App sẽ được thay thế.')) return;
+
+    try {
+      setIsManualSheetSyncing(true);
+      const sheetData = await loadGoogleSheetData(
+        sheetConnection.accessToken,
+        sheetConnection.spreadsheetId
+      );
+      handleImportDataFromSheet(sheetData.items, sheetData.history, sheetData.weeks);
+      showSheetSyncNotice('success', `Đã tải ${sheetData.items.length} mã hàng, ${sheetData.weeks.length} kỳ tuần và ${sheetData.history.length} giao dịch vào App.`);
+    } catch (error: any) {
+      showSheetSyncNotice('error', error.message || 'Không thể tải dữ liệu từ Google Sheets.');
+    } finally {
+      setIsManualSheetSyncing(false);
+    }
+  };
+
   // Save Entry Form Slip
   const handleSaveEntrySlip = (
     week: string,
@@ -273,6 +329,73 @@ export default function App() {
         return it;
       });
     });
+  };
+
+  const handleUpdateEntrySlip = (
+    week: string,
+    rows: { itemId: string; importQty: number; newStockQty: number; exportQty: number }[]
+  ) => {
+    const editableItemIds = new Set(rows.map((row) => row.itemId));
+    const oldEntries = historyRecords.filter(
+      (record) => record.week === week && record.id.startsWith('ENTRY-') && editableItemIds.has(record.itemId)
+    );
+    if (oldEntries.length === 0) return false;
+
+    const oldTotals = new Map<string, { importQty: number; exportQty: number }>();
+    oldEntries.forEach((record) => {
+      const total = oldTotals.get(record.itemId) || { importQty: 0, exportQty: 0 };
+      total.importQty += record.importQty;
+      total.exportQty += record.exportQty;
+      oldTotals.set(record.itemId, total);
+    });
+
+    const changedRows = rows.filter((row) => row.importQty > 0 || row.exportQty > 0);
+    const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const selectedWeekMeta = weekCatalog.find((candidate) => candidate.code === week);
+    const updateId = Date.now();
+    const replacementEntries: HistoryRecord[] = changedRows.map((row, index) => {
+      const item = items.find((candidate) => candidate.id === row.itemId);
+      return {
+        id: `ENTRY-${updateId}-${index}`,
+        dateTime: timestamp,
+        week,
+        year: selectedWeekMeta?.year,
+        startDate: selectedWeekMeta?.startDate,
+        endDate: selectedWeekMeta?.endDate,
+        itemId: row.itemId,
+        itemName: item?.name || row.itemId,
+        importQty: row.importQty,
+        stockQty: row.newStockQty,
+        exportQty: row.exportQty,
+        documentCode: `PN-${new Date().toISOString().slice(2, 7).replace('-', '')}-${100 + index}`,
+        type: row.importQty > 0 ? 'Nhập' : 'Xuất',
+        notes: `Cập nhật nhập định kỳ ${week}`
+      };
+    });
+
+    setHistoryRecords((previous) => [
+      ...replacementEntries,
+      ...previous.filter(
+        (record) => !(record.week === week && record.id.startsWith('ENTRY-') && editableItemIds.has(record.itemId))
+      )
+    ]);
+
+    setItems((previous) => previous.map((item) => {
+      const updatedRow = rows.find((row) => row.itemId === item.id);
+      if (!updatedRow) return item;
+      const oldTotal = oldTotals.get(item.id) || { importQty: 0, exportQty: 0 };
+      const importDelta = updatedRow.importQty - oldTotal.importQty;
+      const exportDelta = updatedRow.exportQty - oldTotal.exportQty;
+      return {
+        ...item,
+        currentStock: Math.max(0, item.currentStock + importDelta - exportDelta),
+        totalImport: Math.max(0, item.totalImport + importDelta),
+        totalExport: Math.max(0, item.totalExport + exportDelta),
+        lastUpdated: 'Hôm nay, ' + new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+      };
+    }));
+
+    return true;
   };
 
   // Create Quick Transaction Slip
@@ -371,9 +494,26 @@ export default function App() {
           onOpenNotifications={() => setIsNotificationsOpen(true)}
           onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           onOpenGoogleSheets={() => setIsGoogleSheetsOpen(true)}
+          onPushToGoogleSheets={handlePushToGoogleSheets}
+          onPullFromGoogleSheets={handlePullFromGoogleSheets}
+          isGoogleSheetsConnected={Boolean(sheetConnection && isSheetReady)}
+          isGoogleSheetsSyncing={isManualSheetSyncing}
           currentUser={currentUser}
           unreadCount={lowStockCount}
         />
+
+        {sheetSyncNotice && (
+          <div
+            role="status"
+            className={`mx-3 mt-2 rounded-lg border px-3 py-2 text-xs font-semibold shadow-xs sm:mx-6 ${
+              sheetSyncNotice.type === 'success'
+                ? 'border-[#006c4a] bg-[#85f8c4]/30 text-[#004e35]'
+                : 'border-[#ba1a1a] bg-[#ffdad6]/60 text-[#93000a]'
+            }`}
+          >
+            {sheetSyncNotice.text}
+          </div>
+        )}
 
         {/* Dynamic Screen View */}
         <main className="flex-1 overflow-y-auto p-2 sm:p-4 md:p-6 bg-[#f8f9fa]">
@@ -381,7 +521,9 @@ export default function App() {
             <DataEntryScreen
               items={items}
               weeks={weekCatalog}
+              history={historyRecords}
               onSaveSlip={handleSaveEntrySlip}
+              onUpdateSlip={handleUpdateEntrySlip}
               onNavigateToDetail={handleSelectItemDetail}
             />
           )}
