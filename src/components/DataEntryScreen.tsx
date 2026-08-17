@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
-import { InventoryItem } from '../types';
+import React, { useEffect, useMemo, useState } from 'react';
+import { InventoryItem, WeekCatalogItem } from '../types';
 import { Save, RotateCcw, Plus, CheckCircle, Info } from 'lucide-react';
 
 interface DataEntryScreenProps {
   items: InventoryItem[];
+  weeks: WeekCatalogItem[];
   onSaveSlip: (week: string, rows: { itemId: string; importQty: number; newStockQty: number; exportQty: number }[]) => void;
   onNavigateToDetail: (itemId: string) => void;
 }
@@ -17,25 +18,54 @@ interface FormRow {
   calculatedExport: number;
 }
 
+const createRows = (items: InventoryItem[]): FormRow[] =>
+  items.filter((item) => item.status !== 'Ngừng sử dụng').slice(0, 6).map((item) => ({
+    itemId: item.id,
+    name: item.name,
+    initialStock: item.currentStock,
+    importQty: '',
+    newStockQty: '',
+    calculatedExport: 0
+  }));
+
 export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
   items,
+  weeks,
   onSaveSlip,
   onNavigateToDetail
 }) => {
-  const [selectedWeek, setSelectedWeek] = useState('44');
+  const today = new Date();
+  const todayIso = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()))
+    .toISOString()
+    .slice(0, 10);
+  const getDefaultWeek = () => weeks.find(
+    (week) => week.startDate <= todayIso && week.endDate >= todayIso
+  )?.code || weeks.find((week) => week.status === 'Đang mở')?.code || weeks[0]?.code || '';
+  const defaultWeek = getDefaultWeek();
+  const [selectedWeek, setSelectedWeek] = useState(defaultWeek);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const weekOptions = useMemo(
+    () => [...weeks].sort((a, b) => a.year - b.year || a.code.localeCompare(b.code)),
+    [weeks]
+  );
+
+  useEffect(() => {
+    if (!weekOptions.some((week) => week.code === selectedWeek)) {
+      setSelectedWeek(getDefaultWeek());
+    }
+  }, [selectedWeek, weekOptions]);
 
   // Initialize rows from current items (default top 6 from mock)
-  const [rows, setRows] = useState<FormRow[]>(() => {
-    return items.slice(0, 6).map((item) => ({
-      itemId: item.id,
-      name: item.name,
-      initialStock: item.currentStock,
-      importQty: '',
-      newStockQty: '',
-      calculatedExport: 0
-    }));
-  });
+  const [rows, setRows] = useState<FormRow[]>(() => createRows(items));
+
+  useEffect(() => {
+    setRows((currentRows) => {
+      const hasUnsavedInput = currentRows.some(
+        (row) => row.importQty !== '' || row.newStockQty !== ''
+      );
+      return hasUnsavedInput ? currentRows : createRows(items);
+    });
+  }, [items]);
 
   const handleInputChange = (
     index: number,
@@ -58,16 +88,7 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
   };
 
   const handleReset = () => {
-    setRows(
-      items.slice(0, 6).map((item) => ({
-        itemId: item.id,
-        name: item.name,
-        initialStock: item.currentStock,
-        importQty: '',
-        newStockQty: '',
-        calculatedExport: 0
-      }))
-    );
+    setRows(createRows(items));
   };
 
   const handleSave = () => {
@@ -78,7 +99,37 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
       exportQty: r.calculatedExport
     }));
 
-    onSaveSlip(`Tuần ${selectedWeek}`, dataToSave);
+    const invalidRow = rows.find((row) => {
+      const imported = parseFloat(row.importQty) || 0;
+      const countedStock = row.newStockQty === ''
+        ? row.initialStock + imported
+        : parseFloat(row.newStockQty);
+      return imported < 0 || !Number.isFinite(countedStock) || countedStock < 0 || countedStock > row.initialStock + imported;
+    });
+    if (invalidRow) {
+      alert(`Dữ liệu mã ${invalidRow.itemId} không hợp lệ. Tồn mới không thể âm hoặc lớn hơn Tồn cũ + Nhập.`);
+      return;
+    }
+
+    const changedRows = dataToSave.filter((row) => row.importQty > 0 || row.exportQty > 0);
+    if (changedRows.length === 0) {
+      alert('Chưa có số lượng nhập hoặc xuất để lưu.');
+      return;
+    }
+
+    onSaveSlip(selectedWeek, dataToSave);
+    setRows((currentRows) =>
+      currentRows.map((row) => {
+        const saved = dataToSave.find((candidate) => candidate.itemId === row.itemId);
+        return {
+          ...row,
+          initialStock: saved?.newStockQty ?? row.initialStock,
+          importQty: '',
+          newStockQty: '',
+          calculatedExport: 0
+        };
+      })
+    );
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3500);
   };
@@ -101,7 +152,9 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
     ]);
   };
 
-  const unusedItems = items.filter(it => !rows.some(r => r.itemId === it.id));
+  const unusedItems = items.filter(
+    (it) => it.status !== 'Ngừng sử dụng' && !rows.some((r) => r.itemId === it.id)
+  );
 
   return (
     <div className="max-w-5xl mx-auto flex flex-col h-full space-y-3 sm:space-y-4">
@@ -110,7 +163,7 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
         <div className="bg-[#85f8c4] border border-[#006c4a] text-[#002114] px-3 py-2 sm:px-4 sm:py-3 rounded-lg flex items-center gap-2 sm:gap-3 shadow-md animate-in fade-in slide-in-from-top-2 duration-300">
           <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5 text-[#006c4a] shrink-0" />
           <div className="text-xs sm:text-sm font-semibold">
-            Đã lưu thành công phiếu nhập liệu Tuần {selectedWeek}! Dữ liệu kho đã được cập nhật.
+            Đã lưu thành công phiếu nhập liệu {selectedWeek}! Dữ liệu kho đã được cập nhật.
           </div>
         </div>
       )}
@@ -134,10 +187,9 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
               onChange={(e) => setSelectedWeek(e.target.value)}
               className="bg-transparent border-none p-0 text-xs sm:text-[13px] font-bold text-[#005bbf] focus:ring-0 cursor-pointer outline-none"
             >
-              <option value="44">Tuần 44 (28/10 - 03/11)</option>
-              <option value="45">Tuần 45 (04/11 - 10/11)</option>
-              <option value="46">Tuần 46 (11/11 - 17/11)</option>
-              <option value="47">Tuần 47 (18/11 - 24/11)</option>
+              {weekOptions.map((week) => (
+                <option key={`${week.year}-${week.code}`} value={week.code}>{week.label}</option>
+              ))}
             </select>
           </div>
 

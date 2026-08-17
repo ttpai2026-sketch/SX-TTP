@@ -1,4 +1,128 @@
-import { InventoryItem, HistoryRecord } from '../types';
+import { InventoryItem, HistoryRecord, WeekCatalogItem } from '../types';
+
+export const DEFAULT_SPREADSHEET_ID = '1SF6tZwcM9KQyNNL2K5W2ZL5U-vcFXTZliWaSpjb048k';
+export const DEFAULT_SPREADSHEET_URL = `https://docs.google.com/spreadsheets/d/${DEFAULT_SPREADSHEET_ID}/edit`;
+const INVENTORY_SHEET = 'TonKho_TongHop';
+const HISTORY_SHEET = 'LichSu_NhapXuat';
+const PRODUCT_CATALOG_SHEET = 'Danh Mục Sản Phẩm';
+const WEEK_CATALOG_SHEET = 'Danh Mục Tuần';
+
+const productCatalogHeaders = [
+  'Mã Hàng',
+  'Tên Hàng',
+  'Phân Loại',
+  'Đơn Vị Tính',
+  'Vị Trí Kho',
+  'Ngưỡng Tối Thiểu',
+  'Kích Thước / Quy Cách',
+  'Chất Liệu',
+  'Trọng Lượng Chuẩn',
+  'Trạng Thái'
+];
+
+const weekCatalogHeaders = [
+  'Mã Tuần',
+  'Năm',
+  'Từ Ngày',
+  'Đến Ngày',
+  'Tên Hiển Thị',
+  'Trạng Thái'
+];
+
+export const createWeekCatalog = (year = new Date().getFullYear()): WeekCatalogItem[] => {
+  const today = new Date();
+  const todayIso = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()))
+    .toISOString()
+    .slice(0, 10);
+  const getIsoWeek = (date: Date) => {
+    const target = new Date(date);
+    const day = target.getUTCDay() || 7;
+    target.setUTCDate(target.getUTCDate() + 4 - day);
+    const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+    return Math.ceil(((target.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  };
+  const getMonday = (date: Date) => {
+    const monday = new Date(date);
+    const day = monday.getUTCDay() || 7;
+    monday.setUTCDate(monday.getUTCDate() - day + 1);
+    return monday;
+  };
+  const weeks: WeekCatalogItem[] = [];
+
+  for (let month = 0; month < 12; month += 1) {
+    const monthStart = new Date(Date.UTC(year, month, 1));
+    const monthEnd = new Date(Date.UTC(year, month + 1, 0));
+    let cursor = new Date(monthStart);
+
+    while (cursor <= monthEnd) {
+      const fullStart = getMonday(cursor);
+      const fullEnd = new Date(fullStart);
+      fullEnd.setUTCDate(fullStart.getUTCDate() + 6);
+      const segmentStart = month === 0 && cursor.getUTCDate() === 1 ? fullStart : new Date(cursor);
+      const segmentEnd = fullEnd < monthEnd ? fullEnd : monthEnd;
+      const startDate = segmentStart.toISOString().slice(0, 10);
+      const endDate = segmentEnd.toISOString().slice(0, 10);
+      const weekNumber = getIsoWeek(cursor);
+      const code = `Y${year}.M${String(month + 1).padStart(2, '0')}.W${String(weekNumber).padStart(2, '0')}`;
+      const status: WeekCatalogItem['status'] = todayIso < startDate
+        ? 'Sắp tới'
+        : todayIso > endDate
+          ? 'Đã đóng'
+          : 'Đang mở';
+      weeks.push({
+        code,
+        year,
+        startDate,
+        endDate,
+        label: `W${String(weekNumber).padStart(2, '0')} — ${startDate} đến ${endDate}`,
+        status
+      });
+      cursor = new Date(segmentEnd);
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+  }
+
+  return weeks;
+};
+
+const normalizeSheetDate = (value: string | number | undefined): string => {
+  if (value === undefined || value === '') return '';
+  if (typeof value === 'number' || /^\d+(?:\.\d+)?$/.test(String(value))) {
+    const serial = Number(value);
+    if (Number.isFinite(serial) && serial > 20000) {
+      return new Date(Date.UTC(1899, 11, 30) + serial * 86400000).toISOString().slice(0, 10);
+    }
+  }
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const match = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (match) {
+    return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
+  }
+  return text;
+};
+
+const toProductCatalogRows = (items: InventoryItem[]) => items.map((it) => [
+  it.id,
+  it.name,
+  it.category,
+  it.unit,
+  it.location,
+  it.minStockThreshold ?? 50,
+  it.specs?.dimensions || '',
+  it.specs?.material || '',
+  it.specs?.standardWeight || '',
+  it.status || 'Đang sử dụng'
+]);
+
+const toWeekCatalogRows = (weeks: WeekCatalogItem[]) => weeks.map((week) => [
+  week.code,
+  week.year,
+  week.startDate,
+  week.endDate,
+  week.label,
+  week.status
+]);
 
 export interface GoogleDriveSpreadsheet {
   id: string;
@@ -6,6 +130,19 @@ export interface GoogleDriveSpreadsheet {
   modifiedTime?: string;
   webViewLink?: string;
 }
+
+const parseSheetNumber = (value: string | undefined, fallback = 0) => {
+  if (value === undefined || value.trim() === '') return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const readGoogleError = async (response: Response, fallback: string) => {
+  const data = await response.json().catch(() => ({}));
+  return data.error?.message || `${fallback} (${response.status})`;
+};
+
+const quoteSheetTitle = (title: string) => `'${title.replace(/'/g, "''")}'`;
 
 /**
  * List existing Google Sheets in user's Google Drive
@@ -36,9 +173,10 @@ export async function createNhaKhuonSpreadsheet(
   accessToken: string,
   title: string,
   items: InventoryItem[],
-  history: HistoryRecord[]
+  history: HistoryRecord[],
+  weeks: WeekCatalogItem[] = createWeekCatalog()
 ): Promise<{ spreadsheetId: string; spreadsheetUrl: string }> {
-  // 1. Create Spreadsheet with two sheets: "TonKho_TongHop" and "LichSu_NhapXuat"
+  // 1. Create Spreadsheet with inventory, history and app catalog sheets.
   const payload = {
     properties: {
       title: title || `QuanLy_NhaKhuon_${new Date().toISOString().slice(0, 10)}`
@@ -46,7 +184,7 @@ export async function createNhaKhuonSpreadsheet(
     sheets: [
       {
         properties: {
-          title: 'TonKho_TongHop',
+          title: INVENTORY_SHEET,
           gridProperties: {
             frozenRowCount: 1
           }
@@ -54,7 +192,23 @@ export async function createNhaKhuonSpreadsheet(
       },
       {
         properties: {
-          title: 'LichSu_NhapXuat',
+          title: HISTORY_SHEET,
+          gridProperties: {
+            frozenRowCount: 1
+          }
+        }
+      },
+      {
+        properties: {
+          title: PRODUCT_CATALOG_SHEET,
+          gridProperties: {
+            frozenRowCount: 1
+          }
+        }
+      },
+      {
+        properties: {
+          title: WEEK_CATALOG_SHEET,
           gridProperties: {
             frozenRowCount: 1
           }
@@ -109,7 +263,7 @@ export async function createNhaKhuonSpreadsheet(
     it.totalImport,
     it.totalExport,
     it.currentStock,
-    it.minStockThreshold || 50,
+    it.minStockThreshold ?? 50,
     it.specs?.dimensions || '',
     it.specs?.material || '',
     it.specs?.standardWeight || '',
@@ -121,6 +275,9 @@ export async function createNhaKhuonSpreadsheet(
     'Mã Phiếu / ID',
     'Thời Gian',
     'Tuần',
+    'Năm',
+    'Từ Ngày',
+    'Đến Ngày',
     'Mã Hàng',
     'Tên Hàng',
     'Loại Giao Dịch',
@@ -135,6 +292,9 @@ export async function createNhaKhuonSpreadsheet(
     h.id,
     h.dateTime,
     h.week,
+    h.year ?? '',
+    h.startDate || '',
+    h.endDate || '',
     h.itemId,
     h.itemName,
     h.type || (h.importQty > 0 ? 'Nhập' : 'Xuất'),
@@ -146,7 +306,7 @@ export async function createNhaKhuonSpreadsheet(
   ]);
 
   // Batch update values
-  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+  const valuesRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -156,16 +316,28 @@ export async function createNhaKhuonSpreadsheet(
       valueInputOption: 'USER_ENTERED',
       data: [
         {
-          range: 'TonKho_TongHop!A1:N',
+          range: `${quoteSheetTitle(INVENTORY_SHEET)}!A1:N`,
           values: [inventoryHeaders, ...inventoryRows]
         },
         {
-          range: 'LichSu_NhapXuat!A1:K',
+          range: `${quoteSheetTitle(HISTORY_SHEET)}!A1:N`,
           values: [historyHeaders, ...historyRows]
+        },
+        {
+          range: `${quoteSheetTitle(PRODUCT_CATALOG_SHEET)}!A1:J`,
+          values: [productCatalogHeaders, ...toProductCatalogRows(items)]
+        },
+        {
+          range: `${quoteSheetTitle(WEEK_CATALOG_SHEET)}!A1:F`,
+          values: [weekCatalogHeaders, ...toWeekCatalogRows(weeks)]
         }
       ]
     })
   });
+
+  if (!valuesRes.ok) {
+    throw new Error(await readGoogleError(valuesRes, 'Đã tạo file nhưng không thể ghi dữ liệu'));
+  }
 
   return { spreadsheetId, spreadsheetUrl };
 }
@@ -177,7 +349,8 @@ export async function syncToGoogleSheet(
   accessToken: string,
   spreadsheetId: string,
   items: InventoryItem[],
-  history: HistoryRecord[]
+  history: HistoryRecord[],
+  weeks: WeekCatalogItem[] = createWeekCatalog()
 ): Promise<void> {
   const inventoryHeaders = [
     'Mã Hàng',
@@ -206,7 +379,7 @@ export async function syncToGoogleSheet(
     it.totalImport,
     it.totalExport,
     it.currentStock,
-    it.minStockThreshold || 50,
+    it.minStockThreshold ?? 50,
     it.specs?.dimensions || '',
     it.specs?.material || '',
     it.specs?.standardWeight || '',
@@ -217,6 +390,9 @@ export async function syncToGoogleSheet(
     'Mã Phiếu / ID',
     'Thời Gian',
     'Tuần',
+    'Năm',
+    'Từ Ngày',
+    'Đến Ngày',
     'Mã Hàng',
     'Tên Hàng',
     'Loại Giao Dịch',
@@ -231,6 +407,9 @@ export async function syncToGoogleSheet(
     h.id,
     h.dateTime,
     h.week,
+    h.year ?? '',
+    h.startDate || '',
+    h.endDate || '',
     h.itemId,
     h.itemName,
     h.type || (h.importQty > 0 ? 'Nhập' : 'Xuất'),
@@ -252,27 +431,58 @@ export async function syncToGoogleSheet(
   }
 
   const metaData = await metaRes.json();
-  const sheetTitles = (metaData.sheets || []).map((s: { properties: { title: string } }) => s.properties.title);
+  let sheetTitles = (metaData.sheets || []).map((s: { properties: { title: string } }) => s.properties.title);
 
   let targetInventorySheet = 'TonKho_TongHop';
-  if (!sheetTitles.includes('TonKho_TongHop')) {
+  if (!sheetTitles.includes(INVENTORY_SHEET)) {
     // If not existing, pick first sheet
     targetInventorySheet = sheetTitles[0] || 'Sheet1';
   }
 
+
+  const missingCatalogSheets = [HISTORY_SHEET, PRODUCT_CATALOG_SHEET, WEEK_CATALOG_SHEET]
+    .filter((title) => !sheetTitles.includes(title));
+  if (missingCatalogSheets.length > 0) {
+    const addSheetRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          requests: missingCatalogSheets.map((title) => ({
+            addSheet: { properties: { title, gridProperties: { frozenRowCount: 1 } } }
+          }))
+        })
+      }
+    );
+    if (!addSheetRes.ok) {
+      throw new Error(await readGoogleError(addSheetRes, 'Không thể tạo các sheet danh mục'));
+    }
+    sheetTitles = [...sheetTitles, ...missingCatalogSheets];
+  }
+
   const updates: Array<{ range: string; values: (string | number)[][] }> = [
     {
-      range: `${targetInventorySheet}!A1:N${inventoryRows.length + 1}`,
+      range: `${quoteSheetTitle(targetInventorySheet)}!A1:N${inventoryRows.length + 1}`,
       values: [inventoryHeaders, ...inventoryRows]
     }
   ];
 
-  if (sheetTitles.includes('LichSu_NhapXuat')) {
-    updates.push({
-      range: `LichSu_NhapXuat!A1:K${historyRows.length + 1}`,
-      values: [historyHeaders, ...historyRows]
-    });
-  }
+  updates.push({
+    range: `${quoteSheetTitle(HISTORY_SHEET)}!A1:N${historyRows.length + 1}`,
+    values: [historyHeaders, ...historyRows]
+  });
+  updates.push({
+    range: `${quoteSheetTitle(PRODUCT_CATALOG_SHEET)}!A1:J${items.length + 1}`,
+    values: [productCatalogHeaders, ...toProductCatalogRows(items)]
+  });
+  updates.push({
+    range: `${quoteSheetTitle(WEEK_CATALOG_SHEET)}!A1:F${weeks.length + 1}`,
+    values: [weekCatalogHeaders, ...toWeekCatalogRows(weeks)]
+  });
 
   const updateRes = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
@@ -292,6 +502,29 @@ export async function syncToGoogleSheet(
   if (!updateRes.ok) {
     const err = await updateRes.json().catch(() => ({}));
     throw new Error(err.error?.message || `Không thể cập nhật Google Sheet (${updateRes.status})`);
+  }
+
+  // Only clear rows below the newly written data after a successful update.
+  const clearRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchClear`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        ranges: [
+          `${quoteSheetTitle(targetInventorySheet)}!A${inventoryRows.length + 2}:N`,
+          `${quoteSheetTitle(HISTORY_SHEET)}!A${historyRows.length + 2}:N`,
+          `${quoteSheetTitle(PRODUCT_CATALOG_SHEET)}!A${items.length + 2}:J`,
+          `${quoteSheetTitle(WEEK_CATALOG_SHEET)}!A${weeks.length + 2}:F`
+        ]
+      })
+    }
+  );
+  if (!clearRes.ok) {
+    throw new Error(await readGoogleError(clearRes, 'Đã ghi dữ liệu mới nhưng không thể xóa các dòng cũ phía dưới'));
   }
 }
 
@@ -318,7 +551,7 @@ export async function importFromGoogleSheet(
   const sheetTitle = tonKhoSheet?.properties?.title || 'Sheet1';
 
   const valuesRes = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetTitle)}!A1:Z500`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(`${quoteSheetTitle(sheetTitle)}!A1:Z500`)}`,
     {
       headers: { Authorization: `Bearer ${accessToken}` }
     }
@@ -347,11 +580,11 @@ export async function importFromGoogleSheet(
     const category = (r[2]?.trim() as any) || 'Nguyên Liệu';
     const unit = r[3]?.trim() || 'Cái';
     const location = r[4]?.trim() || 'Kho Nhà Khuôn';
-    const initialStock = parseFloat(r[5]) || 0;
-    const totalImport = parseFloat(r[6]) || 0;
-    const totalExport = parseFloat(r[7]) || 0;
-    const currentStock = parseFloat(r[8]) || (initialStock + totalImport - totalExport);
-    const minStockThreshold = parseFloat(r[9]) || 50;
+    const initialStock = parseSheetNumber(r[5]);
+    const totalImport = parseSheetNumber(r[6]);
+    const totalExport = parseSheetNumber(r[7]);
+    const currentStock = parseSheetNumber(r[8], initialStock + totalImport - totalExport);
+    const minStockThreshold = parseSheetNumber(r[9], 50);
     const dimensions = r[10] || '';
     const material = r[11] || '';
     const standardWeight = r[12] || '';
@@ -378,4 +611,156 @@ export async function importFromGoogleSheet(
   }
 
   return importedItems;
+}
+
+/**
+ * Import transaction history from the standard history tab.
+ */
+export async function importHistoryFromGoogleSheet(
+  accessToken: string,
+  spreadsheetId: string
+): Promise<HistoryRecord[]> {
+  const range = encodeURIComponent(`${quoteSheetTitle(HISTORY_SHEET)}!A1:N`);
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+
+  if (!response.ok) {
+    throw new Error(await readGoogleError(response, 'Không thể đọc lịch sử nhập/xuất'));
+  }
+
+  const payload = await response.json();
+  const rows: Array<Array<string | number>> = payload.values || [];
+  return rows.slice(1).flatMap((row, index) => {
+    const itemId = String(row[6] || '').trim();
+    if (!itemId) return [];
+    const importQty = parseSheetNumber(String(row[9] ?? ''));
+    const exportQty = parseSheetNumber(String(row[11] ?? ''));
+    const rawType = String(row[8] || '');
+    const type: 'Nhập' | 'Xuất' = rawType === 'Xuất' ? 'Xuất' : 'Nhập';
+
+    return [{
+      id: String(row[0] || `HIST-${Date.now()}-${index}`),
+      dateTime: String(row[1] || ''),
+      week: String(row[2] || ''),
+      year: parseSheetNumber(String(row[3] ?? '')),
+      startDate: normalizeSheetDate(row[4]),
+      endDate: normalizeSheetDate(row[5]),
+      itemId,
+      itemName: String(row[7] || itemId),
+      type,
+      importQty,
+      stockQty: parseSheetNumber(String(row[10] ?? '')),
+      exportQty,
+      documentCode: String(row[12] || ''),
+      notes: String(row[13] || '')
+    }];
+  });
+}
+
+export async function importProductCatalog(
+  accessToken: string,
+  spreadsheetId: string
+): Promise<InventoryItem[]> {
+  const range = encodeURIComponent(`${quoteSheetTitle(PRODUCT_CATALOG_SHEET)}!A1:J`);
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (response.status === 400) return [];
+  if (!response.ok) {
+    throw new Error(await readGoogleError(response, 'Không thể đọc danh mục sản phẩm'));
+  }
+  const payload = await response.json();
+  const rows: Array<Array<string | number>> = payload.values || [];
+  return rows.slice(1).flatMap((row) => {
+    const id = String(row[0] || '').trim();
+    if (!id) return [];
+    return [{
+      id,
+      name: String(row[1] || id),
+      category: (String(row[2] || 'Nguyên Liệu') as InventoryItem['category']),
+      unit: String(row[3] || 'Cái'),
+      location: String(row[4] || 'Kho Nhà Khuôn'),
+      initialStock: 0,
+      currentStock: 0,
+      totalImport: 0,
+      totalExport: 0,
+      minStockThreshold: parseSheetNumber(String(row[5] ?? ''), 50),
+      lastUpdated: 'Vừa đồng bộ Google Sheets',
+      specs: {
+        dimensions: String(row[6] || ''),
+        material: String(row[7] || ''),
+        standardWeight: String(row[8] || '')
+      },
+      status: row[9] === 'Ngừng sử dụng' ? 'Ngừng sử dụng' : 'Đang sử dụng'
+    }];
+  });
+}
+
+export async function importWeekCatalog(
+  accessToken: string,
+  spreadsheetId: string
+): Promise<WeekCatalogItem[]> {
+  const range = encodeURIComponent(`${quoteSheetTitle(WEEK_CATALOG_SHEET)}!A1:F`);
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (response.status === 400) return createWeekCatalog();
+  if (!response.ok) {
+    throw new Error(await readGoogleError(response, 'Không thể đọc danh mục tuần'));
+  }
+  const payload = await response.json();
+  const rows: Array<Array<string | number>> = payload.values || [];
+  const weeks = rows.slice(1).flatMap((row) => {
+    const code = String(row[0] || '').trim();
+    if (!code) return [];
+    const rawStatus = String(row[5] || 'Sắp tới');
+    const status: WeekCatalogItem['status'] = rawStatus === 'Đã đóng' || rawStatus === 'Đang mở'
+      ? rawStatus
+      : 'Sắp tới';
+    return [{
+      code,
+      year: parseSheetNumber(String(row[1] ?? ''), new Date().getFullYear()),
+      startDate: normalizeSheetDate(row[2]),
+      endDate: normalizeSheetDate(row[3]),
+      label: String(row[4] || code),
+      status
+    }];
+  });
+  return weeks.length > 0 ? weeks : createWeekCatalog();
+}
+
+export async function loadGoogleSheetData(
+  accessToken: string,
+  spreadsheetId = DEFAULT_SPREADSHEET_ID
+): Promise<{ items: InventoryItem[]; history: HistoryRecord[]; weeks: WeekCatalogItem[] }> {
+  const [inventoryItems, history, catalogItems, weeks] = await Promise.all([
+    importFromGoogleSheet(accessToken, spreadsheetId),
+    importHistoryFromGoogleSheet(accessToken, spreadsheetId),
+    importProductCatalog(accessToken, spreadsheetId),
+    importWeekCatalog(accessToken, spreadsheetId)
+  ]);
+  const inventoryById = new Map(inventoryItems.map((item) => [item.id, item]));
+  const items = catalogItems.length === 0
+    ? inventoryItems
+    : [
+        ...catalogItems.map((catalogItem) => ({
+          ...catalogItem,
+          ...(inventoryById.get(catalogItem.id) || {}),
+          name: catalogItem.name,
+          category: catalogItem.category,
+          unit: catalogItem.unit,
+          location: catalogItem.location,
+          minStockThreshold: catalogItem.minStockThreshold,
+          specs: catalogItem.specs,
+          status: catalogItem.status
+        })),
+        ...inventoryItems.filter(
+          (item) => !catalogItems.some((catalogItem) => catalogItem.id === item.id)
+        )
+      ];
+  return { items, history, weeks };
 }

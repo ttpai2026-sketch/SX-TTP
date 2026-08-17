@@ -19,19 +19,23 @@ import {
   listUserSpreadsheets,
   createNhaKhuonSpreadsheet,
   syncToGoogleSheet,
-  importFromGoogleSheet,
+  loadGoogleSheetData,
+  DEFAULT_SPREADSHEET_ID,
+  DEFAULT_SPREADSHEET_URL,
   GoogleDriveSpreadsheet
 } from '../services/googleSheetsService';
-import { InventoryItem, HistoryRecord } from '../types';
+import { InventoryItem, HistoryRecord, WeekCatalogItem } from '../types';
 
 interface GoogleSheetsSyncModalProps {
   isOpen: boolean;
   onClose: () => void;
   items: InventoryItem[];
   history: HistoryRecord[];
-  onImportItems: (newItems: InventoryItem[]) => void;
+  weeks: WeekCatalogItem[];
+  onImportData: (newItems: InventoryItem[], newHistory: HistoryRecord[], newWeeks: WeekCatalogItem[]) => void;
   currentUser: User | null;
-  onUserChanged: (user: User | null) => void;
+  onConnect: (user: User, accessToken: string, spreadsheetId?: string) => Promise<void>;
+  onDisconnect: () => void;
 }
 
 export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
@@ -39,12 +43,14 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
   onClose,
   items,
   history,
-  onImportItems,
+  weeks,
+  onImportData,
   currentUser,
-  onUserChanged
+  onConnect,
+  onDisconnect
 }) => {
   const [spreadsheets, setSpreadsheets] = useState<GoogleDriveSpreadsheet[]>([]);
-  const [selectedSpreadsheetId, setSelectedSpreadsheetId] = useState<string>('');
+  const [selectedSpreadsheetId, setSelectedSpreadsheetId] = useState<string>(DEFAULT_SPREADSHEET_ID);
   const [isLoading, setIsLoading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{
@@ -56,6 +62,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
     `QuanLy_NhaKhuon_Tuan${new Date().toISOString().slice(0, 10)}`
   );
   const [isCreatingNew, setIsCreatingNew] = useState(false);
+  const [needsReauth, setNeedsReauth] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState<{
     action: 'export' | 'import' | 'create';
     title: string;
@@ -74,12 +81,19 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
       setIsLoading(true);
       setStatusMessage(null);
       const token = await getAccessToken();
-      if (!token) return;
+      if (!token) {
+        setNeedsReauth(true);
+        setStatusMessage({
+          type: 'info',
+          text: 'Phiên Google Drive cần được kết nối lại sau khi tải lại trang.'
+        });
+        return;
+      }
+      setNeedsReauth(false);
       const list = await listUserSpreadsheets(token);
       setSpreadsheets(list);
-      if (list.length > 0 && !selectedSpreadsheetId) {
-        setSelectedSpreadsheetId(list[0].id);
-      }
+      const defaultSheet = list.find((sheet) => sheet.id === DEFAULT_SPREADSHEET_ID);
+      if (defaultSheet) setSelectedSpreadsheetId(defaultSheet.id);
     } catch (err: any) {
       setStatusMessage({
         type: 'error',
@@ -96,15 +110,18 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
       setStatusMessage(null);
       const res = await googleSignIn();
       if (res) {
-        onUserChanged(res.user);
+        setNeedsReauth(false);
         const list = await listUserSpreadsheets(res.accessToken);
         setSpreadsheets(list);
-        if (list.length > 0) {
-          setSelectedSpreadsheetId(list[0].id);
-        }
+        const targetSpreadsheetId = list.some((sheet) => sheet.id === DEFAULT_SPREADSHEET_ID)
+          ? DEFAULT_SPREADSHEET_ID
+          : selectedSpreadsheetId;
+        setSelectedSpreadsheetId(targetSpreadsheetId);
+        await onConnect(res.user, res.accessToken, targetSpreadsheetId);
         setStatusMessage({
           type: 'success',
-          text: `Đã liên kết tài khoản Google: ${res.user.email}`
+          text: `Đã liên kết tài khoản Google: ${res.user.email}. Google Sheets hiện là nguồn dữ liệu chính.`,
+          link: targetSpreadsheetId === DEFAULT_SPREADSHEET_ID ? DEFAULT_SPREADSHEET_URL : undefined
         });
       }
     } catch (err: any) {
@@ -119,9 +136,10 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
 
   const handleSignOut = async () => {
     await logout();
-    onUserChanged(null);
+    onDisconnect();
     setSpreadsheets([]);
-    setSelectedSpreadsheetId('');
+    setSelectedSpreadsheetId(DEFAULT_SPREADSHEET_ID);
+    setNeedsReauth(false);
     setStatusMessage({
       type: 'info',
       text: 'Đã ngắt kết nối tài khoản Google'
@@ -146,7 +164,8 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
         token,
         newSheetTitle,
         items,
-        history
+        history,
+        weeks
       );
 
       setStatusMessage({
@@ -158,6 +177,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
       // Refresh list
       await loadSpreadsheets();
       setSelectedSpreadsheetId(result.spreadsheetId);
+      if (currentUser) await onConnect(currentUser, token, result.spreadsheetId);
       setIsCreatingNew(false);
     } catch (err: any) {
       setStatusMessage({
@@ -191,7 +211,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
       }
       if (!token) throw new Error('Cần đăng nhập Google để tiếp tục');
 
-      await syncToGoogleSheet(token, selectedSpreadsheetId, items, history);
+      await syncToGoogleSheet(token, selectedSpreadsheetId, items, history, weeks);
 
       const target = spreadsheets.find((s) => s.id === selectedSpreadsheetId);
 
@@ -232,13 +252,13 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
       }
       if (!token) throw new Error('Cần đăng nhập Google để tiếp tục');
 
-      const importedItems = await importFromGoogleSheet(token, selectedSpreadsheetId);
+      const imported = await loadGoogleSheetData(token, selectedSpreadsheetId);
 
-      onImportItems(importedItems);
+      onImportData(imported.items, imported.history, imported.weeks);
 
       setStatusMessage({
         type: 'success',
-        text: `Đã nhập thành công ${importedItems.length} mặt hàng từ Google Sheet vào ứng dụng!`
+        text: `Đã nhập ${imported.items.length} mặt hàng, ${imported.weeks.length} tuần và ${imported.history.length} giao dịch từ Google Sheet!`
       });
     } catch (err: any) {
       setStatusMessage({
@@ -338,15 +358,28 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
                   </div>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={handleSignOut}
-                className="text-xs text-[#ba1a1a] hover:bg-[#ffdad6] px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1 transition-colors"
-                title="Đăng xuất tài khoản Google"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Đăng xuất</span>
-              </button>
+              <div className="flex items-center gap-1">
+                {needsReauth && (
+                  <button
+                    type="button"
+                    onClick={handleSignIn}
+                    disabled={isLoading}
+                    className="text-xs text-[#005bbf] hover:bg-[#d5e3fc] px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1 transition-colors"
+                  >
+                    <LogIn className="w-3.5 h-3.5" />
+                    <span>Kết nối lại</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="text-xs text-[#ba1a1a] hover:bg-[#ffdad6] px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1 transition-colors"
+                  title="Đăng xuất tài khoản Google"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Đăng xuất</span>
+                </button>
+              </div>
             </div>
           )}
 

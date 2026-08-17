@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ScreenType, InventoryItem, HistoryRecord } from './types';
+import { ScreenType, InventoryItem, HistoryRecord, WeekCatalogItem } from './types';
 import { INITIAL_ITEMS, INITIAL_HISTORY } from './mockData';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -14,10 +14,38 @@ import { HelpModal } from './components/HelpModal';
 import { NotificationModal } from './components/NotificationModal';
 import { GoogleSheetsSyncModal } from './components/GoogleSheetsSyncModal';
 import { subscribeToAuthChanges, User } from './services/auth';
+import {
+  DEFAULT_SPREADSHEET_ID,
+  createWeekCatalog,
+  loadGoogleSheetData,
+  syncToGoogleSheet
+} from './services/googleSheetsService';
+
+const getTodayIso = () => {
+  const now = new Date();
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()))
+    .toISOString()
+    .slice(0, 10);
+};
 
 export default function App() {
   // Auth state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [sheetConnection, setSheetConnection] = useState<{
+    accessToken: string;
+    spreadsheetId: string;
+  } | null>(null);
+  const [isSheetReady, setIsSheetReady] = useState(false);
+  const [hasLegacyLocalData] = useState(() => {
+    try {
+      return Boolean(
+        localStorage.getItem('nha_khuon_items') ||
+        localStorage.getItem('nha_khuon_history')
+      );
+    } catch {
+      return false;
+    }
+  });
 
   // Subscribe to Firebase Auth
   useEffect(() => {
@@ -34,7 +62,7 @@ export default function App() {
   // Search query
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Items State (persisted to localStorage)
+  // Browser cache used before Google Sheets is connected.
   const [items, setItems] = useState<InventoryItem[]>(() => {
     try {
       const saved = localStorage.getItem('nha_khuon_items');
@@ -45,7 +73,7 @@ export default function App() {
     return INITIAL_ITEMS;
   });
 
-  // History Records State (persisted to localStorage)
+  // Browser cache used before Google Sheets is connected.
   const [historyRecords, setHistoryRecords] = useState<HistoryRecord[]>(() => {
     try {
       const saved = localStorage.getItem('nha_khuon_history');
@@ -56,7 +84,9 @@ export default function App() {
     return INITIAL_HISTORY;
   });
 
-  // Sync to localStorage
+  const [weekCatalog, setWeekCatalog] = useState<WeekCatalogItem[]>(() => createWeekCatalog());
+
+  // Keep a local cache for offline recovery. Google Sheets is the source of truth once connected.
   useEffect(() => {
     try {
       localStorage.setItem('nha_khuon_items', JSON.stringify(items));
@@ -72,6 +102,20 @@ export default function App() {
       // ignore
     }
   }, [historyRecords]);
+
+  useEffect(() => {
+    if (!sheetConnection || !isSheetReady) return;
+    const timeoutId = window.setTimeout(() => {
+      syncToGoogleSheet(
+        sheetConnection.accessToken,
+        sheetConnection.spreadsheetId,
+        items,
+        historyRecords,
+        weekCatalog
+      ).catch((error) => console.error('Google Sheets auto-sync failed:', error));
+    }, 800);
+    return () => window.clearTimeout(timeoutId);
+  }, [historyRecords, isSheetReady, items, sheetConnection, weekCatalog]);
 
   // Modal States
   const [isNewItemModalOpen, setIsNewItemModalOpen] = useState(false);
@@ -94,6 +138,10 @@ export default function App() {
 
   // Handlers for Data Changes
   const handleSaveItem = (item: InventoryItem) => {
+    if (!itemToEdit && items.some((existing) => existing.id === item.id)) {
+      alert(`Mã hàng ${item.id} đã tồn tại. Vui lòng dùng mã khác.`);
+      return false;
+    }
     setItems((prev) => {
       const existsIndex = prev.findIndex((i) => i.id === item.id);
       if (existsIndex >= 0) {
@@ -104,9 +152,14 @@ export default function App() {
         return [item, ...prev];
       }
     });
+    return true;
   };
 
   const handleDeleteItem = (itemId: string) => {
+    if (historyRecords.some((record) => record.itemId === itemId)) {
+      alert('Không thể xóa mã hàng đã có lịch sử nhập/xuất. Hãy giữ mã để bảo toàn dữ liệu kiểm toán.');
+      return;
+    }
     setItems((prev) => prev.filter((i) => i.id !== itemId));
     if (selectedItemId === itemId) {
       const remaining = items.filter((i) => i.id !== itemId);
@@ -130,21 +183,65 @@ export default function App() {
     }
   };
 
+  const handleImportDataFromSheet = (
+    importedItems: InventoryItem[],
+    importedHistory: HistoryRecord[],
+    importedWeeks: WeekCatalogItem[]
+  ) => {
+    handleImportItemsFromSheet(importedItems);
+    setHistoryRecords(importedHistory);
+    setWeekCatalog(importedWeeks);
+  };
+
+  const handleGoogleConnected = async (
+    user: User,
+    accessToken: string,
+    spreadsheetId = DEFAULT_SPREADSHEET_ID
+  ) => {
+    setCurrentUser(user);
+    setIsSheetReady(false);
+    const migrationKey = `nha_khuon_google_migrated_${spreadsheetId}`;
+    const alreadyMigrated = localStorage.getItem(migrationKey) === 'true';
+
+    if (hasLegacyLocalData && !alreadyMigrated) {
+      await syncToGoogleSheet(accessToken, spreadsheetId, items, historyRecords, weekCatalog);
+      localStorage.setItem(migrationKey, 'true');
+    } else {
+      const sheetData = await loadGoogleSheetData(accessToken, spreadsheetId);
+      handleImportDataFromSheet(sheetData.items, sheetData.history, sheetData.weeks);
+    }
+
+    setSheetConnection({ accessToken, spreadsheetId });
+    setIsSheetReady(true);
+  };
+
+  const handleGoogleDisconnected = () => {
+    setCurrentUser(null);
+    setSheetConnection(null);
+    setIsSheetReady(false);
+  };
+
   // Save Entry Form Slip
   const handleSaveEntrySlip = (
     week: string,
     rows: { itemId: string; importQty: number; newStockQty: number; exportQty: number }[]
   ) => {
-    const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const changedRows = rows.filter((r) => r.importQty > 0 || r.exportQty > 0);
+    if (changedRows.length === 0) return;
 
-    const newHistoryEntries: HistoryRecord[] = rows
-      .filter((r) => r.importQty > 0 || r.exportQty > 0)
+    const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const selectedWeekMeta = weekCatalog.find((candidate) => candidate.code === week);
+
+    const newHistoryEntries: HistoryRecord[] = changedRows
       .map((r, i) => {
         const it = items.find((item) => item.id === r.itemId);
         return {
           id: `ENTRY-${Date.now()}-${i}`,
           dateTime: timestamp,
-          week: week.replace('Tuần ', 'W'),
+          week,
+          year: selectedWeekMeta?.year,
+          startDate: selectedWeekMeta?.startDate,
+          endDate: selectedWeekMeta?.endDate,
           itemId: r.itemId,
           itemName: it ? it.name : r.itemId,
           importQty: r.importQty,
@@ -163,7 +260,7 @@ export default function App() {
     // Update items current stock
     setItems((prev) => {
       return prev.map((it) => {
-        const matchingRow = rows.find((r) => r.itemId === it.id);
+        const matchingRow = changedRows.find((r) => r.itemId === it.id);
         if (matchingRow) {
           return {
             ...it,
@@ -186,19 +283,29 @@ export default function App() {
     quantity: number;
     notes: string;
   }) => {
-    const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
     const it = items.find((i) => i.id === slipData.itemId);
-    const itemName = it ? it.name : slipData.itemId;
-    const currentStock = it ? it.currentStock : 0;
+    if (!it || slipData.quantity <= 0) return;
+    if (slipData.type === 'Xuất' && slipData.quantity > it.currentStock) return;
+
+    const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const todayIso = getTodayIso();
+    const currentWeek = weekCatalog.find(
+      (week) => week.startDate <= todayIso && week.endDate >= todayIso
+    ) || weekCatalog.find((week) => week.status === 'Đang mở');
+    const itemName = it.name;
+    const currentStock = it.currentStock;
     const newStock =
       slipData.type === 'Nhập'
         ? currentStock + slipData.quantity
-        : Math.max(0, currentStock - slipData.quantity);
+        : currentStock - slipData.quantity;
 
     const newRecord: HistoryRecord = {
       id: `SLIP-${Date.now()}`,
       dateTime: timestamp,
-      week: 'W44',
+      week: currentWeek?.code || '',
+      year: currentWeek?.year,
+      startDate: currentWeek?.startDate,
+      endDate: currentWeek?.endDate,
       itemId: slipData.itemId,
       itemName,
       importQty: slipData.type === 'Nhập' ? slipData.quantity : 0,
@@ -232,7 +339,7 @@ export default function App() {
     items.find((i) => i.id === selectedItemId) || items[0] || INITIAL_ITEMS[0];
 
   const lowStockCount = items.filter(
-    (it) => it.currentStock <= (it.minStockThreshold || 50)
+    (it) => it.currentStock <= (it.minStockThreshold ?? 50)
   ).length;
 
   return (
@@ -273,6 +380,7 @@ export default function App() {
           {currentScreen === 'entry' && (
             <DataEntryScreen
               items={items}
+              weeks={weekCatalog}
               onSaveSlip={handleSaveEntrySlip}
               onNavigateToDetail={handleSelectItemDetail}
             />
@@ -296,6 +404,7 @@ export default function App() {
           {currentScreen === 'detail' && (
             <ItemDetailScreen
               item={selectedItem}
+              history={historyRecords.filter((record) => record.itemId === selectedItem.id)}
               onBack={() => setCurrentScreen('catalog')}
               onEdit={handleOpenEditItem}
               onViewAllHistory={() => setCurrentScreen('history')}
@@ -305,6 +414,8 @@ export default function App() {
           {currentScreen === 'report' && (
             <ReportScreen
               items={items}
+              history={historyRecords}
+              weeks={weekCatalog}
               onNavigateToDetail={handleSelectItemDetail}
               onOpenGoogleSheets={() => setIsGoogleSheetsOpen(true)}
             />
@@ -313,6 +424,7 @@ export default function App() {
           {currentScreen === 'history' && (
             <HistoryScreen
               records={historyRecords}
+              weeks={weekCatalog}
               onViewItemDetail={handleSelectItemDetail}
             />
           )}
@@ -355,9 +467,11 @@ export default function App() {
         onClose={() => setIsGoogleSheetsOpen(false)}
         items={items}
         history={historyRecords}
-        onImportItems={handleImportItemsFromSheet}
+        weeks={weekCatalog}
+        onImportData={handleImportDataFromSheet}
         currentUser={currentUser}
-        onUserChanged={(user) => setCurrentUser(user)}
+        onConnect={handleGoogleConnected}
+        onDisconnect={handleGoogleDisconnected}
       />
     </div>
   );

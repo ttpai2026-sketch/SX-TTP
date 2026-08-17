@@ -24,12 +24,25 @@ export interface InventoryItem {
   lastUpdated: string;
   specs: TechSpecs;
   minStockThreshold?: number;
+  status?: 'Đang sử dụng' | 'Ngừng sử dụng';
+}
+
+export interface WeekCatalogItem {
+  code: string;
+  year: number;
+  startDate: string;
+  endDate: string;
+  label: string;
+  status: 'Đã đóng' | 'Đang mở' | 'Sắp tới';
 }
 
 export interface HistoryRecord {
   id: string;
   dateTime: string;
-  week: string; // W43, W44
+  week: string; // e.g. Y2026.M10.W43
+  year?: number;
+  startDate?: string;
+  endDate?: string;
   itemId: string;
   itemName: string;
   importQty: number;

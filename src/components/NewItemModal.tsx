@@ -5,7 +5,7 @@ import { X, Save, Box } from 'lucide-react';
 interface NewItemModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (item: InventoryItem) => void;
+  onSave: (item: InventoryItem) => boolean;
   itemToEdit?: InventoryItem | null;
 }
 
@@ -82,7 +82,9 @@ export const NewItemModal: React.FC<NewItemModalProps> = ({
       totalImport: itemToEdit?.totalImport || 0,
       totalExport: itemToEdit?.totalExport || 0,
       lastUpdated: 'Hôm nay, ' + new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-      minStockThreshold: Number(formData.minStockThreshold) || 50,
+      minStockThreshold: formData.minStockThreshold === undefined
+        ? 50
+        : Number(formData.minStockThreshold),
       specs: {
         dimensions: formData.specs?.dimensions || 'Tiêu chuẩn',
         material: formData.specs?.material || 'Chính phẩm',
@@ -93,8 +95,7 @@ export const NewItemModal: React.FC<NewItemModalProps> = ({
       }
     };
 
-    onSave(finalItem);
-    onClose();
+    if (onSave(finalItem)) onClose();
   };
 
   return (
@@ -131,11 +132,15 @@ export const NewItemModal: React.FC<NewItemModalProps> = ({
               <input
                 type="text"
                 required
+                readOnly={Boolean(itemToEdit)}
                 value={formData.id || ''}
                 onChange={(e) => setFormData({ ...formData, id: e.target.value })}
                 placeholder="VD: NLTC.0196"
-                className="w-full bg-[#f3f4f5] border border-[#c1c6d6] rounded p-2.5 text-sm font-mono font-bold text-[#005bbf] focus:border-[#005bbf] outline-none"
+                className="w-full bg-[#f3f4f5] border border-[#c1c6d6] rounded p-2.5 text-sm font-mono font-bold text-[#005bbf] focus:border-[#005bbf] outline-none read-only:cursor-not-allowed read-only:text-[#515f74]"
               />
+              {itemToEdit && (
+                <p className="mt-1 text-[11px] text-[#515f74]">Mã hàng không thể đổi sau khi đã tạo.</p>
+              )}
             </div>
 
             {/* Tên Hàng */}

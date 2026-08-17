@@ -18,7 +18,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
   if (!isOpen) return null;
 
   const lowStockItems = items.filter(
-    (it) => it.currentStock <= (it.minStockThreshold || 50)
+    (it) => it.currentStock <= (it.minStockThreshold ?? 50)
   );
 
   return (

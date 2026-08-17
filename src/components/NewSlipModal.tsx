@@ -45,6 +45,16 @@ export const NewSlipModal: React.FC<NewSlipModalProps> = ({
       return;
     }
 
+    const item = items.find((candidate) => candidate.id === selectedItemId);
+    if (!item) {
+      alert('Mã hàng không còn tồn tại. Vui lòng chọn lại.');
+      return;
+    }
+    if (type === 'Xuất' && qty > item.currentStock) {
+      alert(`Không thể xuất ${qty} ${item.unit}. Tồn hiện tại chỉ còn ${item.currentStock} ${item.unit}.`);
+      return;
+    }
+
     onCreated({
       type,
       docCode,

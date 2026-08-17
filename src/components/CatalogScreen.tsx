@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { InventoryItem, CategoryType } from '../types';
 import { 
   Download, 
@@ -37,6 +37,11 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 8;
 
+  useEffect(() => {
+    setSearchTerm(searchFilter);
+    setCurrentPage(1);
+  }, [searchFilter]);
+
   // Filter logic
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
@@ -61,21 +66,29 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
   // Key metrics
   const totalCount = items.length;
   const lowStockCount = items.filter(
-    (it) => it.currentStock <= (it.minStockThreshold || 50)
+    (it) => it.currentStock <= (it.minStockThreshold ?? 50)
   ).length;
-  const updatedTodayCount = 8;
+  const updatedTodayCount = items.filter((item) => item.lastUpdated.startsWith('Hôm nay')).length;
 
   const handleExportCSV = () => {
+    const escapeCsv = (value: string | number) => {
+      const text = String(value);
+      const formulaSafe = /^[=+\-@]/.test(text) ? `'${text}` : text;
+      return `"${formulaSafe.replace(/"/g, '""')}"`;
+    };
     const headers = ['Mã Hàng', 'Tên Hàng', 'Đơn Vị Tính', 'Vị Trí Lưu Kho', 'Loại Vật Tư', 'Tồn Kho'];
     const rows = items.map(it => [
       it.id,
-      `"${it.name}"`,
+      it.name,
       it.unit,
-      `"${it.location}"`,
+      it.location,
       it.category,
       it.currentStock
     ]);
-    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [
+      headers.map(escapeCsv).join(','),
+      ...rows.map(row => row.map(escapeCsv).join(','))
+    ].join('\n');
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
@@ -148,7 +161,7 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
             Tổng số mã hàng
           </span>
           <span className="text-[22px] text-[#005bbf] font-bold">
-            {totalCount > 10 ? totalCount.toLocaleString('vi-VN') : '1,245'}
+            {totalCount.toLocaleString('vi-VN')}
           </span>
         </div>
 
@@ -158,7 +171,7 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
           </span>
           <div className="flex items-center justify-between">
             <span className="text-[22px] text-[#ba1a1a] font-bold">
-              {lowStockCount || 12}
+              {lowStockCount}
             </span>
             <AlertTriangle className="w-5 h-5 text-[#ba1a1a] opacity-80" />
           </div>
@@ -236,7 +249,7 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
                 </tr>
               ) : (
                 displayedItems.map((item, idx) => {
-                  const isLow = item.currentStock <= (item.minStockThreshold || 50);
+                  const isLow = item.currentStock <= (item.minStockThreshold ?? 50);
                   return (
                     <tr
                       key={item.id}
@@ -350,7 +363,7 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
           <span>
             Đang hiển thị {displayedItems.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}-
             {Math.min(currentPage * itemsPerPage, filteredItems.length)} của{' '}
-            {totalCount > 10 ? totalCount.toLocaleString('vi-VN') : '1,245'} mã hàng
+            {filteredItems.length.toLocaleString('vi-VN')} mã hàng phù hợp
           </span>
 
           <div className="flex items-center gap-2">

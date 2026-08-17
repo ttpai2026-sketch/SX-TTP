@@ -1,6 +1,5 @@
 import React from 'react';
-import { InventoryItem } from '../types';
-import { ITEM_CHANGES_HISTORY } from '../mockData';
+import { HistoryRecord, InventoryItem } from '../types';
 import { 
   ArrowLeft, 
   Edit3, 
@@ -16,6 +15,7 @@ import {
 
 interface ItemDetailScreenProps {
   item: InventoryItem;
+  history: HistoryRecord[];
   onBack: () => void;
   onEdit: (item: InventoryItem) => void;
   onViewAllHistory?: () => void;
@@ -23,14 +23,19 @@ interface ItemDetailScreenProps {
 
 export const ItemDetailScreen: React.FC<ItemDetailScreenProps> = ({
   item,
+  history,
   onBack,
   onEdit,
   onViewAllHistory
 }) => {
-  const transactions = ITEM_CHANGES_HISTORY[item.id] || [
-    { date: '25/10/2023', type: 'Nhập' as const, qty: 50, doc: 'PN-2310-045', notes: 'Giao dịch nhập gần nhất' },
-    { date: '18/10/2023', type: 'Xuất' as const, qty: -20, doc: 'PX-2310-012', notes: 'Xuất xưởng đúc mẫu' }
-  ];
+  const transactions = history.slice(0, 10).map((record) => ({
+    id: record.id,
+    date: record.dateTime,
+    type: record.type || (record.importQty > 0 ? 'Nhập' as const : 'Xuất' as const),
+    qty: record.importQty > 0 ? record.importQty : -record.exportQty,
+    doc: record.documentCode || '—',
+    notes: record.notes || ''
+  }));
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-12">
@@ -256,11 +261,17 @@ export const ItemDetailScreen: React.FC<ItemDetailScreenProps> = ({
               </tr>
             </thead>
             <tbody className="text-[13px] text-[#191c1d]">
-              {transactions.map((tx, idx) => {
+              {transactions.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-[#515f74]">
+                    Chưa có giao dịch cho mã hàng này.
+                  </td>
+                </tr>
+              ) : transactions.map((tx, idx) => {
                 const isNhap = tx.type === 'Nhập';
                 return (
                   <tr
-                    key={idx}
+                    key={tx.id}
                     className={`border-b border-[#e1e3e4] hover:bg-[#f3f4f5] transition-colors ${
                       idx % 2 === 1 ? 'bg-[#f8f9fa]' : 'bg-white'
                     }`}
