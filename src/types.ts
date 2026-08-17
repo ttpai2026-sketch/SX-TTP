@@ -39,7 +39,10 @@ export interface WeekCatalogItem {
 export interface HistoryRecord {
   id: string;
   dateTime: string;
-  week: string; // W43, W44
+  week: string; // e.g. Y2026.M10.W43
+  year?: number;
+  startDate?: string;
+  endDate?: string;
   itemId: string;
   itemName: string;
   importQty: number;

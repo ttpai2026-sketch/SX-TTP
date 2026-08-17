@@ -34,7 +34,14 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
   onSaveSlip,
   onNavigateToDetail
 }) => {
-  const defaultWeek = weeks.find((week) => week.status === 'Đang mở')?.code || weeks[0]?.code || 'W01';
+  const today = new Date();
+  const todayIso = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()))
+    .toISOString()
+    .slice(0, 10);
+  const getDefaultWeek = () => weeks.find(
+    (week) => week.startDate <= todayIso && week.endDate >= todayIso
+  )?.code || weeks.find((week) => week.status === 'Đang mở')?.code || weeks[0]?.code || '';
+  const defaultWeek = getDefaultWeek();
   const [selectedWeek, setSelectedWeek] = useState(defaultWeek);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const weekOptions = useMemo(
@@ -44,7 +51,7 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
 
   useEffect(() => {
     if (!weekOptions.some((week) => week.code === selectedWeek)) {
-      setSelectedWeek(weekOptions.find((week) => week.status === 'Đang mở')?.code || weekOptions[0]?.code || 'W01');
+      setSelectedWeek(getDefaultWeek());
     }
   }, [selectedWeek, weekOptions]);
 

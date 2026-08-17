@@ -41,13 +41,14 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
 
   const totalImportSum = records.reduce((acc, curr) => acc + curr.importQty, 0);
   const totalSlips = new Set(records.map((record) => record.documentCode || record.id)).size;
-  const weekOptions = useMemo(
-    () => Array.from(new Set([
-      ...weeks.map((week) => week.code),
-      ...records.map((record) => record.week)
-    ])).sort().reverse(),
-    [records, weeks]
-  );
+  const weekOptions = useMemo(() => Array.from(new Set([
+    ...weeks.map((week) => week.code),
+    ...records.map((record) => record.week)
+  ])).filter(Boolean).sort((a, b) => {
+    const aDate = weeks.find((week) => week.code === a)?.startDate || '';
+    const bDate = weeks.find((week) => week.code === b)?.startDate || '';
+    return bDate.localeCompare(aDate) || b.localeCompare(a);
+  }), [records, weeks]);
   const weekLabel = (code: string) => weeks.find((week) => week.code === code)?.label || code;
 
   useEffect(() => {

@@ -21,14 +21,11 @@ import {
   syncToGoogleSheet
 } from './services/googleSheetsService';
 
-const getCurrentWeekCode = () => {
+const getTodayIso = () => {
   const now = new Date();
-  const utcDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
-  const day = utcDate.getUTCDay() || 7;
-  utcDate.setUTCDate(utcDate.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(utcDate.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((utcDate.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return `W${String(week).padStart(2, '0')}`;
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()))
+    .toISOString()
+    .slice(0, 10);
 };
 
 export default function App() {
@@ -233,6 +230,7 @@ export default function App() {
     if (changedRows.length === 0) return;
 
     const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const selectedWeekMeta = weekCatalog.find((candidate) => candidate.code === week);
 
     const newHistoryEntries: HistoryRecord[] = changedRows
       .map((r, i) => {
@@ -241,6 +239,9 @@ export default function App() {
           id: `ENTRY-${Date.now()}-${i}`,
           dateTime: timestamp,
           week,
+          year: selectedWeekMeta?.year,
+          startDate: selectedWeekMeta?.startDate,
+          endDate: selectedWeekMeta?.endDate,
           itemId: r.itemId,
           itemName: it ? it.name : r.itemId,
           importQty: r.importQty,
@@ -287,6 +288,10 @@ export default function App() {
     if (slipData.type === 'Xuất' && slipData.quantity > it.currentStock) return;
 
     const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const todayIso = getTodayIso();
+    const currentWeek = weekCatalog.find(
+      (week) => week.startDate <= todayIso && week.endDate >= todayIso
+    ) || weekCatalog.find((week) => week.status === 'Đang mở');
     const itemName = it.name;
     const currentStock = it.currentStock;
     const newStock =
@@ -297,7 +302,10 @@ export default function App() {
     const newRecord: HistoryRecord = {
       id: `SLIP-${Date.now()}`,
       dateTime: timestamp,
-      week: getCurrentWeekCode(),
+      week: currentWeek?.code || '',
+      year: currentWeek?.year,
+      startDate: currentWeek?.startDate,
+      endDate: currentWeek?.endDate,
       itemId: slipData.itemId,
       itemName,
       importQty: slipData.type === 'Nhập' ? slipData.quantity : 0,

@@ -34,37 +34,72 @@ export const createWeekCatalog = (year = new Date().getFullYear()): WeekCatalogI
   const todayIso = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()))
     .toISOString()
     .slice(0, 10);
-  const jan4 = new Date(Date.UTC(year, 0, 4));
-  const jan4Day = jan4.getUTCDay() || 7;
-  const firstMonday = new Date(jan4);
-  firstMonday.setUTCDate(jan4.getUTCDate() - jan4Day + 1);
+  const getIsoWeek = (date: Date) => {
+    const target = new Date(date);
+    const day = target.getUTCDay() || 7;
+    target.setUTCDate(target.getUTCDate() + 4 - day);
+    const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+    return Math.ceil(((target.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  };
+  const getMonday = (date: Date) => {
+    const monday = new Date(date);
+    const day = monday.getUTCDay() || 7;
+    monday.setUTCDate(monday.getUTCDate() - day + 1);
+    return monday;
+  };
+  const weeks: WeekCatalogItem[] = [];
 
-  return Array.from({ length: 53 }, (_, index) => {
-    const start = new Date(firstMonday);
-    start.setUTCDate(firstMonday.getUTCDate() + index * 7);
-    const end = new Date(start);
-    end.setUTCDate(start.getUTCDate() + 6);
-    const startDate = start.toISOString().slice(0, 10);
-    const endDate = end.toISOString().slice(0, 10);
-    const code = `W${String(index + 1).padStart(2, '0')}`;
-    const status: WeekCatalogItem['status'] = todayIso < startDate
-      ? 'Sắp tới'
-      : todayIso > endDate
-        ? 'Đã đóng'
-        : 'Đang mở';
-    return {
-      code,
-      year,
-      startDate,
-      endDate,
-      label: `${code} — ${startDate} đến ${endDate}`,
-      status
-    };
-  }).filter((week) => {
-    const thursday = new Date(`${week.startDate}T00:00:00Z`);
-    thursday.setUTCDate(thursday.getUTCDate() + 3);
-    return thursday.getUTCFullYear() === year;
-  });
+  for (let month = 0; month < 12; month += 1) {
+    const monthStart = new Date(Date.UTC(year, month, 1));
+    const monthEnd = new Date(Date.UTC(year, month + 1, 0));
+    let cursor = new Date(monthStart);
+
+    while (cursor <= monthEnd) {
+      const fullStart = getMonday(cursor);
+      const fullEnd = new Date(fullStart);
+      fullEnd.setUTCDate(fullStart.getUTCDate() + 6);
+      const segmentStart = month === 0 && cursor.getUTCDate() === 1 ? fullStart : new Date(cursor);
+      const segmentEnd = fullEnd < monthEnd ? fullEnd : monthEnd;
+      const startDate = segmentStart.toISOString().slice(0, 10);
+      const endDate = segmentEnd.toISOString().slice(0, 10);
+      const weekNumber = getIsoWeek(cursor);
+      const code = `Y${year}.M${String(month + 1).padStart(2, '0')}.W${String(weekNumber).padStart(2, '0')}`;
+      const status: WeekCatalogItem['status'] = todayIso < startDate
+        ? 'Sắp tới'
+        : todayIso > endDate
+          ? 'Đã đóng'
+          : 'Đang mở';
+      weeks.push({
+        code,
+        year,
+        startDate,
+        endDate,
+        label: `W${String(weekNumber).padStart(2, '0')} — ${startDate} đến ${endDate}`,
+        status
+      });
+      cursor = new Date(segmentEnd);
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+  }
+
+  return weeks;
+};
+
+const normalizeSheetDate = (value: string | number | undefined): string => {
+  if (value === undefined || value === '') return '';
+  if (typeof value === 'number' || /^\d+(?:\.\d+)?$/.test(String(value))) {
+    const serial = Number(value);
+    if (Number.isFinite(serial) && serial > 20000) {
+      return new Date(Date.UTC(1899, 11, 30) + serial * 86400000).toISOString().slice(0, 10);
+    }
+  }
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const match = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (match) {
+    return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
+  }
+  return text;
 };
 
 const toProductCatalogRows = (items: InventoryItem[]) => items.map((it) => [
@@ -240,6 +275,9 @@ export async function createNhaKhuonSpreadsheet(
     'Mã Phiếu / ID',
     'Thời Gian',
     'Tuần',
+    'Năm',
+    'Từ Ngày',
+    'Đến Ngày',
     'Mã Hàng',
     'Tên Hàng',
     'Loại Giao Dịch',
@@ -254,6 +292,9 @@ export async function createNhaKhuonSpreadsheet(
     h.id,
     h.dateTime,
     h.week,
+    h.year ?? '',
+    h.startDate || '',
+    h.endDate || '',
     h.itemId,
     h.itemName,
     h.type || (h.importQty > 0 ? 'Nhập' : 'Xuất'),
@@ -279,7 +320,7 @@ export async function createNhaKhuonSpreadsheet(
           values: [inventoryHeaders, ...inventoryRows]
         },
         {
-          range: `${quoteSheetTitle(HISTORY_SHEET)}!A1:K`,
+          range: `${quoteSheetTitle(HISTORY_SHEET)}!A1:N`,
           values: [historyHeaders, ...historyRows]
         },
         {
@@ -349,6 +390,9 @@ export async function syncToGoogleSheet(
     'Mã Phiếu / ID',
     'Thời Gian',
     'Tuần',
+    'Năm',
+    'Từ Ngày',
+    'Đến Ngày',
     'Mã Hàng',
     'Tên Hàng',
     'Loại Giao Dịch',
@@ -363,6 +407,9 @@ export async function syncToGoogleSheet(
     h.id,
     h.dateTime,
     h.week,
+    h.year ?? '',
+    h.startDate || '',
+    h.endDate || '',
     h.itemId,
     h.itemName,
     h.type || (h.importQty > 0 ? 'Nhập' : 'Xuất'),
@@ -425,7 +472,7 @@ export async function syncToGoogleSheet(
   ];
 
   updates.push({
-    range: `${quoteSheetTitle(HISTORY_SHEET)}!A1:K${historyRows.length + 1}`,
+    range: `${quoteSheetTitle(HISTORY_SHEET)}!A1:N${historyRows.length + 1}`,
     values: [historyHeaders, ...historyRows]
   });
   updates.push({
@@ -469,7 +516,7 @@ export async function syncToGoogleSheet(
       body: JSON.stringify({
         ranges: [
           `${quoteSheetTitle(targetInventorySheet)}!A${inventoryRows.length + 2}:N`,
-          `${quoteSheetTitle(HISTORY_SHEET)}!A${historyRows.length + 2}:K`,
+          `${quoteSheetTitle(HISTORY_SHEET)}!A${historyRows.length + 2}:N`,
           `${quoteSheetTitle(PRODUCT_CATALOG_SHEET)}!A${items.length + 2}:J`,
           `${quoteSheetTitle(WEEK_CATALOG_SHEET)}!A${weeks.length + 2}:F`
         ]
@@ -573,7 +620,7 @@ export async function importHistoryFromGoogleSheet(
   accessToken: string,
   spreadsheetId: string
 ): Promise<HistoryRecord[]> {
-  const range = encodeURIComponent(`${quoteSheetTitle(HISTORY_SHEET)}!A1:K`);
+  const range = encodeURIComponent(`${quoteSheetTitle(HISTORY_SHEET)}!A1:N`);
   const response = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -586,25 +633,28 @@ export async function importHistoryFromGoogleSheet(
   const payload = await response.json();
   const rows: Array<Array<string | number>> = payload.values || [];
   return rows.slice(1).flatMap((row, index) => {
-    const itemId = String(row[3] || '').trim();
+    const itemId = String(row[6] || '').trim();
     if (!itemId) return [];
-    const importQty = parseSheetNumber(String(row[6] ?? ''));
-    const exportQty = parseSheetNumber(String(row[8] ?? ''));
-    const rawType = String(row[5] || '');
+    const importQty = parseSheetNumber(String(row[9] ?? ''));
+    const exportQty = parseSheetNumber(String(row[11] ?? ''));
+    const rawType = String(row[8] || '');
     const type: 'Nhập' | 'Xuất' = rawType === 'Xuất' ? 'Xuất' : 'Nhập';
 
     return [{
       id: String(row[0] || `HIST-${Date.now()}-${index}`),
       dateTime: String(row[1] || ''),
       week: String(row[2] || ''),
+      year: parseSheetNumber(String(row[3] ?? '')),
+      startDate: normalizeSheetDate(row[4]),
+      endDate: normalizeSheetDate(row[5]),
       itemId,
-      itemName: String(row[4] || itemId),
+      itemName: String(row[7] || itemId),
       type,
       importQty,
-      stockQty: parseSheetNumber(String(row[7] ?? '')),
+      stockQty: parseSheetNumber(String(row[10] ?? '')),
       exportQty,
-      documentCode: String(row[9] || ''),
-      notes: String(row[10] || '')
+      documentCode: String(row[12] || ''),
+      notes: String(row[13] || '')
     }];
   });
 }
@@ -674,8 +724,8 @@ export async function importWeekCatalog(
     return [{
       code,
       year: parseSheetNumber(String(row[1] ?? ''), new Date().getFullYear()),
-      startDate: String(row[2] || ''),
-      endDate: String(row[3] || ''),
+      startDate: normalizeSheetDate(row[2]),
+      endDate: normalizeSheetDate(row[3]),
       label: String(row[4] || code),
       status
     }];
