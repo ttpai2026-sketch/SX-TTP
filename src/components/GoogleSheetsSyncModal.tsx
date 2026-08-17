@@ -35,6 +35,7 @@ interface GoogleSheetsSyncModalProps {
   onImportData: (newItems: InventoryItem[], newHistory: HistoryRecord[], newWeeks: WeekCatalogItem[]) => void;
   currentUser: User | null;
   onConnect: (user: User, accessToken: string, spreadsheetId?: string) => Promise<void>;
+  onSelectSpreadsheet: (user: User, accessToken: string, spreadsheetId: string) => Promise<void>;
   onDisconnect: () => void;
 }
 
@@ -47,10 +48,13 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
   onImportData,
   currentUser,
   onConnect,
+  onSelectSpreadsheet,
   onDisconnect
 }) => {
   const [spreadsheets, setSpreadsheets] = useState<GoogleDriveSpreadsheet[]>([]);
-  const [selectedSpreadsheetId, setSelectedSpreadsheetId] = useState<string>(DEFAULT_SPREADSHEET_ID);
+  const [selectedSpreadsheetId, setSelectedSpreadsheetId] = useState<string>(() =>
+    localStorage.getItem('nha_khuon_last_spreadsheet_id') || DEFAULT_SPREADSHEET_ID
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{
@@ -68,6 +72,31 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
     title: string;
     message: string;
   } | null>(null);
+
+  const handleSelectSpreadsheet = async (spreadsheetId: string) => {
+    setSelectedSpreadsheetId(spreadsheetId);
+    if (!currentUser) return;
+    const token = await getAccessToken();
+    if (!token) {
+      setNeedsReauth(true);
+      return;
+    }
+    try {
+      setIsLoading(true);
+      await onSelectSpreadsheet(currentUser, token, spreadsheetId);
+      setStatusMessage({
+        type: 'success',
+        text: 'Đã chọn bảng tính này làm nguồn dữ liệu chính của App.'
+      });
+    } catch (err: any) {
+      setStatusMessage({
+        type: 'error',
+        text: err.message || 'Không thể kết nối bảng tính đã chọn.'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Load user spreadsheets when modal opens if logged in
   useEffect(() => {
@@ -92,8 +121,11 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
       setNeedsReauth(false);
       const list = await listUserSpreadsheets(token);
       setSpreadsheets(list);
-      const defaultSheet = list.find((sheet) => sheet.id === DEFAULT_SPREADSHEET_ID);
-      if (defaultSheet) setSelectedSpreadsheetId(defaultSheet.id);
+      const selectedSheetStillExists = list.some((sheet) => sheet.id === selectedSpreadsheetId);
+      if (!selectedSheetStillExists) {
+        const defaultSheet = list.find((sheet) => sheet.id === DEFAULT_SPREADSHEET_ID);
+        if (defaultSheet) setSelectedSpreadsheetId(defaultSheet.id);
+      }
     } catch (err: any) {
       setStatusMessage({
         type: 'error',
@@ -486,7 +518,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
                       {spreadsheets.map((sheet) => (
                         <div
                           key={sheet.id}
-                          onClick={() => setSelectedSpreadsheetId(sheet.id)}
+                          onClick={() => handleSelectSpreadsheet(sheet.id)}
                           className={`p-2.5 text-xs flex items-center justify-between cursor-pointer transition-colors ${
                             selectedSpreadsheetId === sheet.id
                               ? 'bg-[#d5e3fc]/60 text-[#004493] font-bold'

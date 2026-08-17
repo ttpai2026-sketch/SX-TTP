@@ -20,7 +20,44 @@ provider.addScope('https://www.googleapis.com/auth/drive.file');
 provider.addScope('https://www.googleapis.com/auth/drive.readonly');
 
 // In-memory token cache (Do NOT store in localStorage)
-let cachedAccessToken: string | null = null;
+const TOKEN_KEY = 'nha_khuon_google_access_token';
+const TOKEN_EXPIRY_KEY = 'nha_khuon_google_token_expiry';
+const TOKEN_LIFETIME_MS = 50 * 60 * 1000;
+
+const readSessionToken = () => {
+  try {
+    const token = sessionStorage.getItem(TOKEN_KEY);
+    const expiresAt = Number(sessionStorage.getItem(TOKEN_EXPIRY_KEY) || 0);
+    if (!token || !expiresAt || Date.now() >= expiresAt) {
+      sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
+      return null;
+    }
+    return token;
+  } catch {
+    return null;
+  }
+};
+
+const saveSessionToken = (token: string) => {
+  try {
+    sessionStorage.setItem(TOKEN_KEY, token);
+    sessionStorage.setItem(TOKEN_EXPIRY_KEY, String(Date.now() + TOKEN_LIFETIME_MS));
+  } catch {
+    // Continue with the in-memory token when session storage is unavailable.
+  }
+};
+
+const clearSessionToken = () => {
+  try {
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(TOKEN_EXPIRY_KEY);
+  } catch {
+    // ignore
+  }
+};
+
+let cachedAccessToken: string | null = readSessionToken();
 let isSigningIn = false;
 
 export const subscribeToAuthChanges = (
@@ -60,6 +97,7 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     }
 
     cachedAccessToken = credential.accessToken;
+    saveSessionToken(cachedAccessToken);
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: unknown) {
     console.error('Google Sign in error:', error);
@@ -70,10 +108,12 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
 };
 
 export const getAccessToken = async (): Promise<string | null> => {
+  if (!cachedAccessToken) cachedAccessToken = readSessionToken();
   return cachedAccessToken;
 };
 
 export const logout = async () => {
   await auth.signOut();
   cachedAccessToken = null;
+  clearSessionToken();
 };

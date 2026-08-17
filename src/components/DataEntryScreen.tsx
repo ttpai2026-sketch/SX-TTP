@@ -18,6 +18,7 @@ interface DataEntryScreenProps {
 interface FormRow {
   itemId: string;
   name: string;
+  unit: string;
   initialStock: number;
   importQty: string;
   newStockQty: string;
@@ -25,9 +26,10 @@ interface FormRow {
 }
 
 const createRows = (items: InventoryItem[]): FormRow[] =>
-  items.filter((item) => item.status !== 'Ngừng sử dụng').slice(0, 6).map((item) => ({
+  items.filter((item) => item.status !== 'Ngừng sử dụng').map((item) => ({
     itemId: item.id,
     name: item.name,
+    unit: item.unit,
     initialStock: item.currentStock,
     importQty: '',
     newStockQty: '',
@@ -163,7 +165,6 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
     try {
       setIsSheetWorking(true);
       const savedRecords = (await onLoadWeekFromSheet(selectedWeek))
-        .filter((record) => record.week === selectedWeek)
         .sort((a, b) => a.dateTime.localeCompare(b.dateTime));
 
       if (savedRecords.length === 0) {
@@ -188,6 +189,7 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
         return {
           itemId,
           name: item?.name || lastRecord.itemName || itemId,
+          unit: item?.unit || '',
           initialStock: firstRecord.stockQty - firstRecord.importQty + firstRecord.exportQty,
           importQty: String(totalImport),
           newStockQty: String(lastRecord.stockQty),
@@ -238,6 +240,7 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
       {
         itemId: item.id,
         name: item.name,
+        unit: item.unit,
         initialStock: item.currentStock,
         importQty: '',
         newStockQty: '',
@@ -345,7 +348,7 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
                           {row.name}
                         </span>
                         <span className="text-[9px] sm:text-[11px] text-[#727785] mt-0.5 whitespace-nowrap">
-                          (Tồn: {row.initialStock})
+                          Tồn đầu tuần: {row.initialStock}{row.unit ? ` ${row.unit}` : ''}
                         </span>
                       </div>
                     </td>
