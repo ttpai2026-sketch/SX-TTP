@@ -14,6 +14,11 @@ import { HelpModal } from './components/HelpModal';
 import { NotificationModal } from './components/NotificationModal';
 import { GoogleSheetsSyncModal } from './components/GoogleSheetsSyncModal';
 import { subscribeToAuthChanges, User } from './services/auth';
+import {
+  DEFAULT_SPREADSHEET_ID,
+  loadGoogleSheetData,
+  syncToGoogleSheet
+} from './services/googleSheetsService';
 
 const getCurrentWeekCode = () => {
   const now = new Date();
@@ -28,6 +33,21 @@ const getCurrentWeekCode = () => {
 export default function App() {
   // Auth state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [sheetConnection, setSheetConnection] = useState<{
+    accessToken: string;
+    spreadsheetId: string;
+  } | null>(null);
+  const [isSheetReady, setIsSheetReady] = useState(false);
+  const [hasLegacyLocalData] = useState(() => {
+    try {
+      return Boolean(
+        localStorage.getItem('nha_khuon_items') ||
+        localStorage.getItem('nha_khuon_history')
+      );
+    } catch {
+      return false;
+    }
+  });
 
   // Subscribe to Firebase Auth
   useEffect(() => {
@@ -44,7 +64,7 @@ export default function App() {
   // Search query
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Items State (persisted to localStorage)
+  // Browser cache used before Google Sheets is connected.
   const [items, setItems] = useState<InventoryItem[]>(() => {
     try {
       const saved = localStorage.getItem('nha_khuon_items');
@@ -55,7 +75,7 @@ export default function App() {
     return INITIAL_ITEMS;
   });
 
-  // History Records State (persisted to localStorage)
+  // Browser cache used before Google Sheets is connected.
   const [historyRecords, setHistoryRecords] = useState<HistoryRecord[]>(() => {
     try {
       const saved = localStorage.getItem('nha_khuon_history');
@@ -66,7 +86,7 @@ export default function App() {
     return INITIAL_HISTORY;
   });
 
-  // Sync to localStorage
+  // Keep a local cache for offline recovery. Google Sheets is the source of truth once connected.
   useEffect(() => {
     try {
       localStorage.setItem('nha_khuon_items', JSON.stringify(items));
@@ -82,6 +102,19 @@ export default function App() {
       // ignore
     }
   }, [historyRecords]);
+
+  useEffect(() => {
+    if (!sheetConnection || !isSheetReady) return;
+    const timeoutId = window.setTimeout(() => {
+      syncToGoogleSheet(
+        sheetConnection.accessToken,
+        sheetConnection.spreadsheetId,
+        items,
+        historyRecords
+      ).catch((error) => console.error('Google Sheets auto-sync failed:', error));
+    }, 800);
+    return () => window.clearTimeout(timeoutId);
+  }, [historyRecords, isSheetReady, items, sheetConnection]);
 
   // Modal States
   const [isNewItemModalOpen, setIsNewItemModalOpen] = useState(false);
@@ -147,6 +180,42 @@ export default function App() {
         setSelectedItemId(importedItems[0].id);
       }
     }
+  };
+
+  const handleImportDataFromSheet = (
+    importedItems: InventoryItem[],
+    importedHistory: HistoryRecord[]
+  ) => {
+    handleImportItemsFromSheet(importedItems);
+    setHistoryRecords(importedHistory);
+  };
+
+  const handleGoogleConnected = async (
+    user: User,
+    accessToken: string,
+    spreadsheetId = DEFAULT_SPREADSHEET_ID
+  ) => {
+    setCurrentUser(user);
+    setIsSheetReady(false);
+    const migrationKey = `nha_khuon_google_migrated_${spreadsheetId}`;
+    const alreadyMigrated = localStorage.getItem(migrationKey) === 'true';
+
+    if (hasLegacyLocalData && !alreadyMigrated) {
+      await syncToGoogleSheet(accessToken, spreadsheetId, items, historyRecords);
+      localStorage.setItem(migrationKey, 'true');
+    } else {
+      const sheetData = await loadGoogleSheetData(accessToken, spreadsheetId);
+      handleImportDataFromSheet(sheetData.items, sheetData.history);
+    }
+
+    setSheetConnection({ accessToken, spreadsheetId });
+    setIsSheetReady(true);
+  };
+
+  const handleGoogleDisconnected = () => {
+    setCurrentUser(null);
+    setSheetConnection(null);
+    setIsSheetReady(false);
   };
 
   // Save Entry Form Slip
@@ -381,9 +450,10 @@ export default function App() {
         onClose={() => setIsGoogleSheetsOpen(false)}
         items={items}
         history={historyRecords}
-        onImportItems={handleImportItemsFromSheet}
+        onImportData={handleImportDataFromSheet}
         currentUser={currentUser}
-        onUserChanged={(user) => setCurrentUser(user)}
+        onConnect={handleGoogleConnected}
+        onDisconnect={handleGoogleDisconnected}
       />
     </div>
   );

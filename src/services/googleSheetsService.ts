@@ -1,5 +1,8 @@
 import { InventoryItem, HistoryRecord } from '../types';
 
+export const DEFAULT_SPREADSHEET_ID = '1SF6tZwcM9KQyNNL2K5W2ZL5U-vcFXTZliWaSpjb048k';
+export const DEFAULT_SPREADSHEET_URL = `https://docs.google.com/spreadsheets/d/${DEFAULT_SPREADSHEET_ID}/edit`;
+
 export interface GoogleDriveSpreadsheet {
   id: string;
   name: string;
@@ -442,4 +445,58 @@ export async function importFromGoogleSheet(
   }
 
   return importedItems;
+}
+
+/**
+ * Import transaction history from the standard history tab.
+ */
+export async function importHistoryFromGoogleSheet(
+  accessToken: string,
+  spreadsheetId: string
+): Promise<HistoryRecord[]> {
+  const range = encodeURIComponent(`${quoteSheetTitle('LichSu_NhapXuat')}!A1:K`);
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+
+  if (!response.ok) {
+    throw new Error(await readGoogleError(response, 'Không thể đọc lịch sử nhập/xuất'));
+  }
+
+  const payload = await response.json();
+  const rows: Array<Array<string | number>> = payload.values || [];
+  return rows.slice(1).flatMap((row, index) => {
+    const itemId = String(row[3] || '').trim();
+    if (!itemId) return [];
+    const importQty = parseSheetNumber(String(row[6] ?? ''));
+    const exportQty = parseSheetNumber(String(row[8] ?? ''));
+    const rawType = String(row[5] || '');
+    const type: 'Nhập' | 'Xuất' = rawType === 'Xuất' ? 'Xuất' : 'Nhập';
+
+    return [{
+      id: String(row[0] || `HIST-${Date.now()}-${index}`),
+      dateTime: String(row[1] || ''),
+      week: String(row[2] || ''),
+      itemId,
+      itemName: String(row[4] || itemId),
+      type,
+      importQty,
+      stockQty: parseSheetNumber(String(row[7] ?? '')),
+      exportQty,
+      documentCode: String(row[9] || ''),
+      notes: String(row[10] || '')
+    }];
+  });
+}
+
+export async function loadGoogleSheetData(
+  accessToken: string,
+  spreadsheetId = DEFAULT_SPREADSHEET_ID
+): Promise<{ items: InventoryItem[]; history: HistoryRecord[] }> {
+  const [items, history] = await Promise.all([
+    importFromGoogleSheet(accessToken, spreadsheetId),
+    importHistoryFromGoogleSheet(accessToken, spreadsheetId)
+  ]);
+  return { items, history };
 }
