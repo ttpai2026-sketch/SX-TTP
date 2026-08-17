@@ -331,6 +331,73 @@ export default function App() {
     });
   };
 
+  const handleUpdateEntrySlip = (
+    week: string,
+    rows: { itemId: string; importQty: number; newStockQty: number; exportQty: number }[]
+  ) => {
+    const editableItemIds = new Set(rows.map((row) => row.itemId));
+    const oldEntries = historyRecords.filter(
+      (record) => record.week === week && record.id.startsWith('ENTRY-') && editableItemIds.has(record.itemId)
+    );
+    if (oldEntries.length === 0) return false;
+
+    const oldTotals = new Map<string, { importQty: number; exportQty: number }>();
+    oldEntries.forEach((record) => {
+      const total = oldTotals.get(record.itemId) || { importQty: 0, exportQty: 0 };
+      total.importQty += record.importQty;
+      total.exportQty += record.exportQty;
+      oldTotals.set(record.itemId, total);
+    });
+
+    const changedRows = rows.filter((row) => row.importQty > 0 || row.exportQty > 0);
+    const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const selectedWeekMeta = weekCatalog.find((candidate) => candidate.code === week);
+    const updateId = Date.now();
+    const replacementEntries: HistoryRecord[] = changedRows.map((row, index) => {
+      const item = items.find((candidate) => candidate.id === row.itemId);
+      return {
+        id: `ENTRY-${updateId}-${index}`,
+        dateTime: timestamp,
+        week,
+        year: selectedWeekMeta?.year,
+        startDate: selectedWeekMeta?.startDate,
+        endDate: selectedWeekMeta?.endDate,
+        itemId: row.itemId,
+        itemName: item?.name || row.itemId,
+        importQty: row.importQty,
+        stockQty: row.newStockQty,
+        exportQty: row.exportQty,
+        documentCode: `PN-${new Date().toISOString().slice(2, 7).replace('-', '')}-${100 + index}`,
+        type: row.importQty > 0 ? 'Nhập' : 'Xuất',
+        notes: `Cập nhật nhập định kỳ ${week}`
+      };
+    });
+
+    setHistoryRecords((previous) => [
+      ...replacementEntries,
+      ...previous.filter(
+        (record) => !(record.week === week && record.id.startsWith('ENTRY-') && editableItemIds.has(record.itemId))
+      )
+    ]);
+
+    setItems((previous) => previous.map((item) => {
+      const updatedRow = rows.find((row) => row.itemId === item.id);
+      if (!updatedRow) return item;
+      const oldTotal = oldTotals.get(item.id) || { importQty: 0, exportQty: 0 };
+      const importDelta = updatedRow.importQty - oldTotal.importQty;
+      const exportDelta = updatedRow.exportQty - oldTotal.exportQty;
+      return {
+        ...item,
+        currentStock: Math.max(0, item.currentStock + importDelta - exportDelta),
+        totalImport: Math.max(0, item.totalImport + importDelta),
+        totalExport: Math.max(0, item.totalExport + exportDelta),
+        lastUpdated: 'Hôm nay, ' + new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+      };
+    }));
+
+    return true;
+  };
+
   // Create Quick Transaction Slip
   const handleCreateQuickSlip = (slipData: {
     type: 'Nhập' | 'Xuất';
@@ -454,7 +521,9 @@ export default function App() {
             <DataEntryScreen
               items={items}
               weeks={weekCatalog}
+              history={historyRecords}
               onSaveSlip={handleSaveEntrySlip}
+              onUpdateSlip={handleUpdateEntrySlip}
               onNavigateToDetail={handleSelectItemDetail}
             />
           )}
