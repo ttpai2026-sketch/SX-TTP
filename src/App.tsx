@@ -13,7 +13,7 @@ import { NewSlipModal } from './components/NewSlipModal';
 import { HelpModal } from './components/HelpModal';
 import { NotificationModal } from './components/NotificationModal';
 import { GoogleSheetsSyncModal } from './components/GoogleSheetsSyncModal';
-import { subscribeToAuthChanges, User } from './services/auth';
+import { getAccessToken, subscribeToAuthChanges, User } from './services/auth';
 import {
   DEFAULT_SPREADSHEET_ID,
   createWeekCatalog,
@@ -28,6 +28,20 @@ const getTodayIso = () => {
     .slice(0, 10);
 };
 
+const LAST_SPREADSHEET_KEY = 'nha_khuon_last_spreadsheet_id';
+
+const getShortWeekCode = (week: string) => {
+  const match = week.trim().toUpperCase().match(/W\d{1,2}$/);
+  return match?.[0] || week.trim().toUpperCase();
+};
+
+const isSameWeek = (recordWeek: string, selectedWeek: string) => {
+  const normalizedRecordWeek = recordWeek.trim().toUpperCase();
+  const normalizedSelectedWeek = selectedWeek.trim().toUpperCase();
+  return normalizedRecordWeek === normalizedSelectedWeek ||
+    normalizedRecordWeek === getShortWeekCode(normalizedSelectedWeek);
+};
+
 export default function App() {
   // Auth state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -36,21 +50,33 @@ export default function App() {
     spreadsheetId: string;
   } | null>(null);
   const [isSheetReady, setIsSheetReady] = useState(false);
-  const [hasLegacyLocalData] = useState(() => {
-    try {
-      return Boolean(
-        localStorage.getItem('nha_khuon_items') ||
-        localStorage.getItem('nha_khuon_history')
-      );
-    } catch {
-      return false;
-    }
-  });
 
   // Subscribe to Firebase Auth
   useEffect(() => {
-    const unsubscribe = subscribeToAuthChanges((user) => {
+    const unsubscribe = subscribeToAuthChanges(async (user) => {
       setCurrentUser(user);
+      if (!user) {
+        setSheetConnection(null);
+        setIsSheetReady(false);
+        return;
+      }
+
+      const accessToken = await getAccessToken();
+      if (!accessToken) return;
+      const spreadsheetId = localStorage.getItem(LAST_SPREADSHEET_KEY) || DEFAULT_SPREADSHEET_ID;
+
+      try {
+        const sheetData = await loadGoogleSheetData(accessToken, spreadsheetId);
+        setItems(sheetData.items);
+        setHistoryRecords(sheetData.history);
+        setWeekCatalog(sheetData.weeks);
+        setSheetConnection({ accessToken, spreadsheetId });
+        setIsSheetReady(true);
+      } catch (error) {
+        console.error('Could not restore Google Sheets session:', error);
+        setSheetConnection(null);
+        setIsSheetReady(false);
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -205,18 +231,11 @@ export default function App() {
   ) => {
     setCurrentUser(user);
     setIsSheetReady(false);
-    const migrationKey = `nha_khuon_google_migrated_${spreadsheetId}`;
-    const alreadyMigrated = localStorage.getItem(migrationKey) === 'true';
-
-    if (hasLegacyLocalData && !alreadyMigrated) {
-      await syncToGoogleSheet(accessToken, spreadsheetId, items, historyRecords, weekCatalog);
-      localStorage.setItem(migrationKey, 'true');
-    } else {
-      const sheetData = await loadGoogleSheetData(accessToken, spreadsheetId);
-      handleImportDataFromSheet(sheetData.items, sheetData.history, sheetData.weeks);
-    }
+    const sheetData = await loadGoogleSheetData(accessToken, spreadsheetId);
+    handleImportDataFromSheet(sheetData.items, sheetData.history, sheetData.weeks);
 
     setSheetConnection({ accessToken, spreadsheetId });
+    localStorage.setItem(LAST_SPREADSHEET_KEY, spreadsheetId);
     setIsSheetReady(true);
   };
 
@@ -224,6 +243,19 @@ export default function App() {
     setCurrentUser(null);
     setSheetConnection(null);
     setIsSheetReady(false);
+  };
+
+  const handleSelectGoogleSheet = async (
+    user: User,
+    accessToken: string,
+    spreadsheetId: string
+  ) => {
+    const sheetData = await loadGoogleSheetData(accessToken, spreadsheetId);
+    setCurrentUser(user);
+    handleImportDataFromSheet(sheetData.items, sheetData.history, sheetData.weeks);
+    setSheetConnection({ accessToken, spreadsheetId });
+    localStorage.setItem(LAST_SPREADSHEET_KEY, spreadsheetId);
+    setIsSheetReady(true);
   };
 
   const showSheetSyncNotice = (type: 'success' | 'error', text: string) => {
@@ -290,7 +322,9 @@ export default function App() {
         sheetConnection.spreadsheetId
       );
       handleImportDataFromSheet(sheetData.items, sheetData.history, sheetData.weeks);
-      const weekRecords = sheetData.history.filter((record) => record.week === week);
+      const weekRecords = sheetData.history
+        .filter((record) => isSameWeek(record.week, week))
+        .map((record) => ({ ...record, week }));
       showSheetSyncNotice(
         'success',
         `Đã đọc Google Sheets và tìm thấy ${weekRecords.length} giao dịch của tuần ${week}.`
@@ -369,9 +403,7 @@ export default function App() {
     }
 
     const sourceIdSet = new Set(sourceRecordIds);
-    const oldEntries = historyRecords.filter(
-      (record) => record.week === week && sourceIdSet.has(record.id)
-    );
+    const oldEntries = historyRecords.filter((record) => sourceIdSet.has(record.id));
     if (oldEntries.length === 0) {
       throw new Error(`Không tìm thấy dữ liệu nguồn của tuần ${week}. Vui lòng tải lại dữ liệu tuần.`);
     }
@@ -664,6 +696,7 @@ export default function App() {
         onImportData={handleImportDataFromSheet}
         currentUser={currentUser}
         onConnect={handleGoogleConnected}
+        onSelectSpreadsheet={handleSelectGoogleSheet}
         onDisconnect={handleGoogleDisconnected}
       />
     </div>
