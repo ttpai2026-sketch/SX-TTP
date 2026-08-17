@@ -24,14 +24,15 @@ import {
   DEFAULT_SPREADSHEET_URL,
   GoogleDriveSpreadsheet
 } from '../services/googleSheetsService';
-import { InventoryItem, HistoryRecord } from '../types';
+import { InventoryItem, HistoryRecord, WeekCatalogItem } from '../types';
 
 interface GoogleSheetsSyncModalProps {
   isOpen: boolean;
   onClose: () => void;
   items: InventoryItem[];
   history: HistoryRecord[];
-  onImportData: (newItems: InventoryItem[], newHistory: HistoryRecord[]) => void;
+  weeks: WeekCatalogItem[];
+  onImportData: (newItems: InventoryItem[], newHistory: HistoryRecord[], newWeeks: WeekCatalogItem[]) => void;
   currentUser: User | null;
   onConnect: (user: User, accessToken: string, spreadsheetId?: string) => Promise<void>;
   onDisconnect: () => void;
@@ -42,6 +43,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
   onClose,
   items,
   history,
+  weeks,
   onImportData,
   currentUser,
   onConnect,
@@ -162,7 +164,8 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
         token,
         newSheetTitle,
         items,
-        history
+        history,
+        weeks
       );
 
       setStatusMessage({
@@ -208,7 +211,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
       }
       if (!token) throw new Error('Cần đăng nhập Google để tiếp tục');
 
-      await syncToGoogleSheet(token, selectedSpreadsheetId, items, history);
+      await syncToGoogleSheet(token, selectedSpreadsheetId, items, history, weeks);
 
       const target = spreadsheets.find((s) => s.id === selectedSpreadsheetId);
 
@@ -251,11 +254,11 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
 
       const imported = await loadGoogleSheetData(token, selectedSpreadsheetId);
 
-      onImportData(imported.items, imported.history);
+      onImportData(imported.items, imported.history, imported.weeks);
 
       setStatusMessage({
         type: 'success',
-        text: `Đã nhập ${imported.items.length} mặt hàng và ${imported.history.length} giao dịch từ Google Sheet!`
+        text: `Đã nhập ${imported.items.length} mặt hàng, ${imported.weeks.length} tuần và ${imported.history.length} giao dịch từ Google Sheet!`
       });
     } catch (err: any) {
       setStatusMessage({

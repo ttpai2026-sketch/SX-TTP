@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { HistoryRecord, InventoryItem } from '../types';
+import { HistoryRecord, InventoryItem, WeekCatalogItem } from '../types';
 import { Download, RefreshCw, BarChart2 } from 'lucide-react';
 
 interface ReportScreenProps {
   items: InventoryItem[];
   history: HistoryRecord[];
+  weeks: WeekCatalogItem[];
   onNavigateToDetail: (itemId: string) => void;
   onOpenGoogleSheets?: () => void;
 }
@@ -12,6 +13,7 @@ interface ReportScreenProps {
 export const ReportScreen: React.FC<ReportScreenProps> = ({
   items,
   history,
+  weeks,
   onNavigateToDetail,
   onOpenGoogleSheets
 }) => {
@@ -21,11 +23,16 @@ export const ReportScreen: React.FC<ReportScreenProps> = ({
   const [filterApplied, setFilterApplied] = useState(false);
 
   const weekOptions = useMemo(
-    () => Array.from(new Set<string>(history.map((record) => record.week.replace(/\D/g, ''))))
+    () => Array.from(new Set<string>([
+      ...weeks.map((week) => week.code.replace(/\D/g, '')),
+      ...history.map((record) => record.week.replace(/\D/g, ''))
+    ]))
       .filter(Boolean)
       .sort((a, b) => Number(a) - Number(b)),
-    [history]
+    [history, weeks]
   );
+  const weekLabel = (value: string) =>
+    weeks.find((week) => week.code.replace(/\D/g, '') === value)?.label || `Tuần ${value}`;
   const monthOptions = useMemo(
     () => Array.from(new Set<string>(history.map((record) => record.dateTime.slice(0, 7))))
       .filter((month) => /^\d{4}-\d{2}$/.test(month))
@@ -149,7 +156,7 @@ export const ReportScreen: React.FC<ReportScreenProps> = ({
             >
               <option value="">Tất cả</option>
               {weekOptions.map((week) => (
-                <option key={week} value={week}>Tuần {week}</option>
+                <option key={week} value={week}>{weekLabel(week)}</option>
               ))}
             </select>
           </div>
@@ -167,7 +174,7 @@ export const ReportScreen: React.FC<ReportScreenProps> = ({
             >
               <option value="">Tất cả</option>
               {weekOptions.map((week) => (
-                <option key={week} value={week}>Tuần {week}</option>
+                <option key={week} value={week}>{weekLabel(week)}</option>
               ))}
             </select>
           </div>

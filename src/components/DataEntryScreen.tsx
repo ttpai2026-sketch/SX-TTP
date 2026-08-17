@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { InventoryItem } from '../types';
+import { InventoryItem, WeekCatalogItem } from '../types';
 import { Save, RotateCcw, Plus, CheckCircle, Info } from 'lucide-react';
 
 interface DataEntryScreenProps {
   items: InventoryItem[];
+  weeks: WeekCatalogItem[];
   onSaveSlip: (week: string, rows: { itemId: string; importQty: number; newStockQty: number; exportQty: number }[]) => void;
   onNavigateToDetail: (itemId: string) => void;
 }
@@ -17,16 +18,8 @@ interface FormRow {
   calculatedExport: number;
 }
 
-const getWeekNumber = (date: Date) => {
-  const utcDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const day = utcDate.getUTCDay() || 7;
-  utcDate.setUTCDate(utcDate.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(utcDate.getUTCFullYear(), 0, 1));
-  return Math.ceil(((utcDate.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-};
-
 const createRows = (items: InventoryItem[]): FormRow[] =>
-  items.slice(0, 6).map((item) => ({
+  items.filter((item) => item.status !== 'Ngừng sử dụng').slice(0, 6).map((item) => ({
     itemId: item.id,
     name: item.name,
     initialStock: item.currentStock,
@@ -37,16 +30,23 @@ const createRows = (items: InventoryItem[]): FormRow[] =>
 
 export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
   items,
+  weeks,
   onSaveSlip,
   onNavigateToDetail
 }) => {
-  const currentWeek = getWeekNumber(new Date());
-  const [selectedWeek, setSelectedWeek] = useState(String(currentWeek));
+  const defaultWeek = weeks.find((week) => week.status === 'Đang mở')?.code || weeks[0]?.code || 'W01';
+  const [selectedWeek, setSelectedWeek] = useState(defaultWeek);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const weekOptions = useMemo(
-    () => Array.from({ length: 6 }, (_, index) => String(Math.max(1, currentWeek - index))),
-    [currentWeek]
+    () => [...weeks].sort((a, b) => a.year - b.year || a.code.localeCompare(b.code)),
+    [weeks]
   );
+
+  useEffect(() => {
+    if (!weekOptions.some((week) => week.code === selectedWeek)) {
+      setSelectedWeek(weekOptions.find((week) => week.status === 'Đang mở')?.code || weekOptions[0]?.code || 'W01');
+    }
+  }, [selectedWeek, weekOptions]);
 
   // Initialize rows from current items (default top 6 from mock)
   const [rows, setRows] = useState<FormRow[]>(() => createRows(items));
@@ -110,7 +110,7 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
       return;
     }
 
-    onSaveSlip(`Tuần ${selectedWeek}`, dataToSave);
+    onSaveSlip(selectedWeek, dataToSave);
     setRows((currentRows) =>
       currentRows.map((row) => {
         const saved = dataToSave.find((candidate) => candidate.itemId === row.itemId);
@@ -145,7 +145,9 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
     ]);
   };
 
-  const unusedItems = items.filter(it => !rows.some(r => r.itemId === it.id));
+  const unusedItems = items.filter(
+    (it) => it.status !== 'Ngừng sử dụng' && !rows.some((r) => r.itemId === it.id)
+  );
 
   return (
     <div className="max-w-5xl mx-auto flex flex-col h-full space-y-3 sm:space-y-4">
@@ -154,7 +156,7 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
         <div className="bg-[#85f8c4] border border-[#006c4a] text-[#002114] px-3 py-2 sm:px-4 sm:py-3 rounded-lg flex items-center gap-2 sm:gap-3 shadow-md animate-in fade-in slide-in-from-top-2 duration-300">
           <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5 text-[#006c4a] shrink-0" />
           <div className="text-xs sm:text-sm font-semibold">
-            Đã lưu thành công phiếu nhập liệu Tuần {selectedWeek}! Dữ liệu kho đã được cập nhật.
+            Đã lưu thành công phiếu nhập liệu {selectedWeek}! Dữ liệu kho đã được cập nhật.
           </div>
         </div>
       )}
@@ -179,7 +181,7 @@ export const DataEntryScreen: React.FC<DataEntryScreenProps> = ({
               className="bg-transparent border-none p-0 text-xs sm:text-[13px] font-bold text-[#005bbf] focus:ring-0 cursor-pointer outline-none"
             >
               {weekOptions.map((week) => (
-                <option key={week} value={week}>Tuần {week}</option>
+                <option key={`${week.year}-${week.code}`} value={week.code}>{week.label}</option>
               ))}
             </select>
           </div>

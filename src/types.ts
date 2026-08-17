@@ -24,6 +24,16 @@ export interface InventoryItem {
   lastUpdated: string;
   specs: TechSpecs;
   minStockThreshold?: number;
+  status?: 'Đang sử dụng' | 'Ngừng sử dụng';
+}
+
+export interface WeekCatalogItem {
+  code: string;
+  year: number;
+  startDate: string;
+  endDate: string;
+  label: string;
+  status: 'Đã đóng' | 'Đang mở' | 'Sắp tới';
 }
 
 export interface HistoryRecord {

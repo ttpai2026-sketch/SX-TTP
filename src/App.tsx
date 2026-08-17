@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ScreenType, InventoryItem, HistoryRecord } from './types';
+import { ScreenType, InventoryItem, HistoryRecord, WeekCatalogItem } from './types';
 import { INITIAL_ITEMS, INITIAL_HISTORY } from './mockData';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -16,6 +16,7 @@ import { GoogleSheetsSyncModal } from './components/GoogleSheetsSyncModal';
 import { subscribeToAuthChanges, User } from './services/auth';
 import {
   DEFAULT_SPREADSHEET_ID,
+  createWeekCatalog,
   loadGoogleSheetData,
   syncToGoogleSheet
 } from './services/googleSheetsService';
@@ -86,6 +87,8 @@ export default function App() {
     return INITIAL_HISTORY;
   });
 
+  const [weekCatalog, setWeekCatalog] = useState<WeekCatalogItem[]>(() => createWeekCatalog());
+
   // Keep a local cache for offline recovery. Google Sheets is the source of truth once connected.
   useEffect(() => {
     try {
@@ -110,11 +113,12 @@ export default function App() {
         sheetConnection.accessToken,
         sheetConnection.spreadsheetId,
         items,
-        historyRecords
+        historyRecords,
+        weekCatalog
       ).catch((error) => console.error('Google Sheets auto-sync failed:', error));
     }, 800);
     return () => window.clearTimeout(timeoutId);
-  }, [historyRecords, isSheetReady, items, sheetConnection]);
+  }, [historyRecords, isSheetReady, items, sheetConnection, weekCatalog]);
 
   // Modal States
   const [isNewItemModalOpen, setIsNewItemModalOpen] = useState(false);
@@ -184,10 +188,12 @@ export default function App() {
 
   const handleImportDataFromSheet = (
     importedItems: InventoryItem[],
-    importedHistory: HistoryRecord[]
+    importedHistory: HistoryRecord[],
+    importedWeeks: WeekCatalogItem[]
   ) => {
     handleImportItemsFromSheet(importedItems);
     setHistoryRecords(importedHistory);
+    setWeekCatalog(importedWeeks);
   };
 
   const handleGoogleConnected = async (
@@ -201,11 +207,11 @@ export default function App() {
     const alreadyMigrated = localStorage.getItem(migrationKey) === 'true';
 
     if (hasLegacyLocalData && !alreadyMigrated) {
-      await syncToGoogleSheet(accessToken, spreadsheetId, items, historyRecords);
+      await syncToGoogleSheet(accessToken, spreadsheetId, items, historyRecords, weekCatalog);
       localStorage.setItem(migrationKey, 'true');
     } else {
       const sheetData = await loadGoogleSheetData(accessToken, spreadsheetId);
-      handleImportDataFromSheet(sheetData.items, sheetData.history);
+      handleImportDataFromSheet(sheetData.items, sheetData.history, sheetData.weeks);
     }
 
     setSheetConnection({ accessToken, spreadsheetId });
@@ -234,7 +240,7 @@ export default function App() {
         return {
           id: `ENTRY-${Date.now()}-${i}`,
           dateTime: timestamp,
-          week: week.replace('Tuần ', 'W'),
+          week,
           itemId: r.itemId,
           itemName: it ? it.name : r.itemId,
           importQty: r.importQty,
@@ -366,6 +372,7 @@ export default function App() {
           {currentScreen === 'entry' && (
             <DataEntryScreen
               items={items}
+              weeks={weekCatalog}
               onSaveSlip={handleSaveEntrySlip}
               onNavigateToDetail={handleSelectItemDetail}
             />
@@ -400,6 +407,7 @@ export default function App() {
             <ReportScreen
               items={items}
               history={historyRecords}
+              weeks={weekCatalog}
               onNavigateToDetail={handleSelectItemDetail}
               onOpenGoogleSheets={() => setIsGoogleSheetsOpen(true)}
             />
@@ -408,6 +416,7 @@ export default function App() {
           {currentScreen === 'history' && (
             <HistoryScreen
               records={historyRecords}
+              weeks={weekCatalog}
               onViewItemDetail={handleSelectItemDetail}
             />
           )}
@@ -450,6 +459,7 @@ export default function App() {
         onClose={() => setIsGoogleSheetsOpen(false)}
         items={items}
         history={historyRecords}
+        weeks={weekCatalog}
         onImportData={handleImportDataFromSheet}
         currentUser={currentUser}
         onConnect={handleGoogleConnected}

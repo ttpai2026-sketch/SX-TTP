@@ -1,15 +1,17 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { HistoryRecord } from '../types';
+import { HistoryRecord, WeekCatalogItem } from '../types';
 import { Eye, Search, Filter, ChevronLeft, ChevronRight, CheckCircle } from 'lucide-react';
 
 interface HistoryScreenProps {
   records: HistoryRecord[];
+  weeks: WeekCatalogItem[];
   onViewItemDetail: (itemId: string) => void;
   onViewRecordReceipt?: (record: HistoryRecord) => void;
 }
 
 export const HistoryScreen: React.FC<HistoryScreenProps> = ({
   records,
+  weeks,
   onViewItemDetail,
   onViewRecordReceipt
 }) => {
@@ -40,9 +42,13 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
   const totalImportSum = records.reduce((acc, curr) => acc + curr.importQty, 0);
   const totalSlips = new Set(records.map((record) => record.documentCode || record.id)).size;
   const weekOptions = useMemo(
-    () => Array.from(new Set(records.map((record) => record.week))).sort().reverse(),
-    [records]
+    () => Array.from(new Set([
+      ...weeks.map((week) => week.code),
+      ...records.map((record) => record.week)
+    ])).sort().reverse(),
+    [records, weeks]
   );
+  const weekLabel = (code: string) => weeks.find((week) => week.code === code)?.label || code;
 
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages);
@@ -130,7 +136,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({
           >
             <option value="all">Tất cả các tuần</option>
             {weekOptions.map((week) => (
-              <option key={week} value={week}>{week.replace('W', 'Tuần ')} ({week})</option>
+              <option key={week} value={week}>{weekLabel(week)}</option>
             ))}
           </select>
         </div>
