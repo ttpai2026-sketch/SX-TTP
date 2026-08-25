@@ -19,7 +19,6 @@ interface CatalogScreenProps {
   onOpenNewItemModal: () => void;
   onEditItem: (item: InventoryItem) => void;
   onDeleteItem: (itemId: string) => void;
-  onOpenGoogleSheets?: () => void;
   searchFilter?: string;
   canManageItems?: boolean;
 }
@@ -30,7 +29,6 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
   onOpenNewItemModal,
   onEditItem,
   onDeleteItem,
-  onOpenGoogleSheets,
   searchFilter = '',
   canManageItems = false
 }) => {
@@ -126,17 +124,6 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-          {onOpenGoogleSheets && (
-            <button
-              id="btn-catalog-google-sheets"
-              onClick={onOpenGoogleSheets}
-              className="bg-[#006c4a] hover:bg-[#004e35] text-white px-3.5 py-2 rounded text-[12px] font-semibold tracking-wider uppercase transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
-            >
-              <Download className="w-4 h-4 rotate-180" />
-              <span>Mở Google Sheet</span>
-            </button>
-          )}
-
           <button
             id="btn-export-catalog"
             onClick={handleExportCSV}

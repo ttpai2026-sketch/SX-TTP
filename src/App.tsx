@@ -24,7 +24,6 @@ import {
 } from './services/auth';
 import {
   DEFAULT_SPREADSHEET_ID,
-  DEFAULT_SPREADSHEET_URL,
   createWeekCatalog,
   loadGoogleSheetData,
   syncToGoogleSheet
@@ -290,10 +289,6 @@ export default function App() {
     }
 
     return { accessToken, spreadsheetId: DEFAULT_SPREADSHEET_ID };
-  };
-
-  const handleOpenFixedGoogleSheet = () => {
-    window.open(DEFAULT_SPREADSHEET_URL, '_blank', 'noopener,noreferrer');
   };
 
   const showSheetSyncNotice = (type: 'success' | 'error', text: string) => {
@@ -627,7 +622,6 @@ export default function App() {
         currentScreen={currentScreen}
         onNavigate={handleNavigate}
         onOpenNewSlip={() => setIsNewSlipModalOpen(true)}
-        onOpenGoogleSheets={handleOpenFixedGoogleSheet}
         onOpenHelp={() => setIsHelpModalOpen(true)}
         isOpenMobile={isMobileMenuOpen}
         onCloseMobile={() => setIsMobileMenuOpen(false)}
@@ -649,7 +643,6 @@ export default function App() {
           }}
           onOpenNotifications={() => setIsNotificationsOpen(true)}
           onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
-          onOpenGoogleSheets={handleOpenFixedGoogleSheet}
           onPushToGoogleSheets={permissions.canWriteGoogleSheets ? handlePushToGoogleSheets : undefined}
           onPullFromGoogleSheets={handlePullFromGoogleSheets}
           isGoogleSheetsSyncing={isManualSheetSyncing}
@@ -696,7 +689,6 @@ export default function App() {
               }}
               onEditItem={handleOpenEditItem}
               onDeleteItem={handleDeleteItem}
-              onOpenGoogleSheets={handleOpenFixedGoogleSheet}
               searchFilter={searchQuery}
               canManageItems={permissions.canManageCatalog}
             />
@@ -719,7 +711,6 @@ export default function App() {
               history={historyRecords}
               weeks={weekCatalog}
               onNavigateToDetail={handleSelectItemDetail}
-              onOpenGoogleSheets={handleOpenFixedGoogleSheet}
             />
           )}
 

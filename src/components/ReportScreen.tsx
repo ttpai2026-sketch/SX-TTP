@@ -1,21 +1,19 @@
 import React, { useMemo, useState } from 'react';
 import { HistoryRecord, InventoryItem, WeekCatalogItem } from '../types';
-import { Download, RefreshCw, BarChart2 } from 'lucide-react';
+import { Download, BarChart2 } from 'lucide-react';
 
 interface ReportScreenProps {
   items: InventoryItem[];
   history: HistoryRecord[];
   weeks: WeekCatalogItem[];
   onNavigateToDetail: (itemId: string) => void;
-  onOpenGoogleSheets?: () => void;
 }
 
 export const ReportScreen: React.FC<ReportScreenProps> = ({
   items,
   history,
   weeks,
-  onNavigateToDetail,
-  onOpenGoogleSheets
+  onNavigateToDetail
 }) => {
   const [fromWeek, setFromWeek] = useState('');
   const [toWeek, setToWeek] = useState('');
@@ -213,17 +211,6 @@ export const ReportScreen: React.FC<ReportScreenProps> = ({
 
         {/* Buttons */}
         <div className="flex gap-2 w-full md:w-auto shrink-0 flex-wrap sm:flex-nowrap">
-          {onOpenGoogleSheets && (
-            <button
-              id="btn-report-google-sheets"
-              onClick={onOpenGoogleSheets}
-              className="flex-1 md:flex-none bg-[#006c4a] hover:bg-[#004e35] text-white text-[12px] font-bold tracking-wider uppercase px-4 py-2.5 rounded transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-            >
-              <RefreshCw className="w-4 h-4" />
-              <span>Google Sheets Sync</span>
-            </button>
-          )}
-
           <button
             id="btn-export-excel"
             onClick={handleExportExcel}
