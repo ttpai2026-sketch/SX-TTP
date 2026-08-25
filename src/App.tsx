@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ScreenType, InventoryItem, HistoryRecord, WeekCatalogItem } from './types';
+import { ScreenType, InventoryItem, HistoryRecord, WeekCatalogItem, UserRole } from './types';
 import { INITIAL_ITEMS, INITIAL_HISTORY } from './mockData';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -13,7 +13,15 @@ import { NewSlipModal } from './components/NewSlipModal';
 import { HelpModal } from './components/HelpModal';
 import { NotificationModal } from './components/NotificationModal';
 import { GoogleSheetsSyncModal } from './components/GoogleSheetsSyncModal';
-import { getAccessToken, subscribeToAuthChanges, User } from './services/auth';
+import { LoginScreen } from './components/LoginScreen';
+import {
+  getAccessToken,
+  getUserRole,
+  logout,
+  ROLE_PERMISSIONS,
+  subscribeToAuthChanges,
+  User
+} from './services/auth';
 import {
   DEFAULT_SPREADSHEET_ID,
   createWeekCatalog,
@@ -45,6 +53,9 @@ const isSameWeek = (recordWeek: string, selectedWeek: string) => {
 export default function App() {
   // Auth state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [userRole, setUserRole] = useState<UserRole | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const permissions = ROLE_PERMISSIONS[userRole || 'viewer'];
   const [sheetConnection, setSheetConnection] = useState<{
     accessToken: string;
     spreadsheetId: string;
@@ -56,9 +67,20 @@ export default function App() {
     const unsubscribe = subscribeToAuthChanges(async (user) => {
       setCurrentUser(user);
       if (!user) {
+        setUserRole(null);
         setSheetConnection(null);
         setIsSheetReady(false);
+        setIsAuthLoading(false);
         return;
+      }
+
+      try {
+        setUserRole(await getUserRole(user));
+      } catch (error) {
+        console.error('Could not read Firebase role claim:', error);
+        setUserRole('viewer');
+      } finally {
+        setIsAuthLoading(false);
       }
 
       const accessToken = await getAccessToken();
@@ -82,7 +104,7 @@ export default function App() {
   }, []);
 
   // Screen state
-  const [currentScreen, setCurrentScreen] = useState<ScreenType>('entry');
+  const [currentScreen, setCurrentScreen] = useState<ScreenType>('catalog');
   const [selectedItemId, setSelectedItemId] = useState<string>('NLTC.0196');
 
   // Search query
@@ -130,7 +152,7 @@ export default function App() {
   }, [historyRecords]);
 
   useEffect(() => {
-    if (!sheetConnection || !isSheetReady) return;
+    if (!sheetConnection || !isSheetReady || !permissions.canWriteGoogleSheets) return;
     const timeoutId = window.setTimeout(() => {
       syncToGoogleSheet(
         sheetConnection.accessToken,
@@ -141,7 +163,7 @@ export default function App() {
       ).catch((error) => console.error('Google Sheets auto-sync failed:', error));
     }, 800);
     return () => window.clearTimeout(timeoutId);
-  }, [historyRecords, isSheetReady, items, sheetConnection, weekCatalog]);
+  }, [historyRecords, isSheetReady, items, permissions.canWriteGoogleSheets, sheetConnection, weekCatalog]);
 
   // Modal States
   const [isNewItemModalOpen, setIsNewItemModalOpen] = useState(false);
@@ -159,6 +181,10 @@ export default function App() {
 
   // Navigation Helpers
   const handleNavigate = (screen: ScreenType) => {
+    if (screen === 'entry' && !permissions.canManageTransactions) {
+      setCurrentScreen('catalog');
+      return;
+    }
     setCurrentScreen(screen);
   };
 
@@ -169,6 +195,10 @@ export default function App() {
 
   // Handlers for Data Changes
   const handleSaveItem = (item: InventoryItem) => {
+    if (!permissions.canManageCatalog) {
+      alert('Tài khoản của bạn không có quyền thay đổi danh mục mã hàng.');
+      return false;
+    }
     if (!itemToEdit && items.some((existing) => existing.id === item.id)) {
       alert(`Mã hàng ${item.id} đã tồn tại. Vui lòng dùng mã khác.`);
       return false;
@@ -187,6 +217,10 @@ export default function App() {
   };
 
   const handleDeleteItem = (itemId: string) => {
+    if (!permissions.canManageCatalog) {
+      alert('Tài khoản của bạn không có quyền xóa mã hàng.');
+      return;
+    }
     if (historyRecords.some((record) => record.itemId === itemId)) {
       alert('Không thể xóa mã hàng đã có lịch sử nhập/xuất. Hãy giữ mã để bảo toàn dữ liệu kiểm toán.');
       return;
@@ -201,6 +235,7 @@ export default function App() {
   };
 
   const handleOpenEditItem = (item: InventoryItem) => {
+    if (!permissions.canManageCatalog) return;
     setItemToEdit(item);
     setIsNewItemModalOpen(true);
   };
@@ -241,6 +276,7 @@ export default function App() {
 
   const handleGoogleDisconnected = () => {
     setCurrentUser(null);
+    setUserRole(null);
     setSheetConnection(null);
     setIsSheetReady(false);
   };
@@ -264,6 +300,10 @@ export default function App() {
   };
 
   const handlePushToGoogleSheets = async () => {
+    if (!permissions.canWriteGoogleSheets) {
+      showSheetSyncNotice('error', 'Tài khoản của bạn chỉ có quyền xem, không thể ghi dữ liệu lên Google Sheets.');
+      return;
+    }
     if (!sheetConnection) {
       setIsGoogleSheetsOpen(true);
       return;
@@ -343,6 +383,10 @@ export default function App() {
     week: string,
     rows: { itemId: string; importQty: number; newStockQty: number; exportQty: number }[]
   ) => {
+    if (!permissions.canManageTransactions) {
+      alert('Tài khoản của bạn không có quyền tạo giao dịch.');
+      return;
+    }
     const changedRows = rows.filter((r) => r.importQty > 0 || r.exportQty > 0);
     if (changedRows.length === 0) return;
 
@@ -397,6 +441,9 @@ export default function App() {
     rows: { itemId: string; importQty: number; newStockQty: number; exportQty: number }[],
     sourceRecordIds: string[]
   ): Promise<HistoryRecord[]> => {
+    if (!permissions.canManageTransactions || !permissions.canWriteGoogleSheets) {
+      throw new Error('Tài khoản của bạn không có quyền cập nhật dữ liệu tuần.');
+    }
     if (!sheetConnection || !isSheetReady) {
       setIsGoogleSheetsOpen(true);
       throw new Error('Vui lòng kết nối Google Sheets trước khi cập nhật dữ liệu tuần.');
@@ -489,6 +536,10 @@ export default function App() {
     quantity: number;
     notes: string;
   }) => {
+    if (!permissions.canManageTransactions) {
+      alert('Tài khoản của bạn không có quyền tạo phiếu nhập/xuất.');
+      return;
+    }
     const it = items.find((i) => i.id === slipData.itemId);
     if (!it || slipData.quantity <= 0) return;
     if (slipData.type === 'Xuất' && slipData.quantity > it.currentStock) return;
@@ -548,6 +599,21 @@ export default function App() {
     (it) => it.currentStock <= (it.minStockThreshold ?? 50)
   ).length;
 
+  const handleLogout = async () => {
+    await logout();
+    setCurrentUser(null);
+    setUserRole(null);
+    setSheetConnection(null);
+    setIsSheetReady(false);
+    setIsGoogleSheetsOpen(false);
+  };
+
+  if (isAuthLoading) {
+    return <div className="flex min-h-screen items-center justify-center bg-[#f3f4f5] text-sm font-semibold text-[#515f74]">Đang kiểm tra phiên đăng nhập...</div>;
+  }
+
+  if (!currentUser || !userRole) return <LoginScreen />;
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#f8f9fa] text-[#191c1d]">
       {/* Sidebar Navigation (Fixed on Desktop, Drawer on Mobile) */}
@@ -559,6 +625,7 @@ export default function App() {
         onOpenHelp={() => setIsHelpModalOpen(true)}
         isOpenMobile={isMobileMenuOpen}
         onCloseMobile={() => setIsMobileMenuOpen(false)}
+        canManageTransactions={permissions.canManageTransactions}
       />
 
       {/* Main Content Area */}
@@ -577,11 +644,14 @@ export default function App() {
           onOpenNotifications={() => setIsNotificationsOpen(true)}
           onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           onOpenGoogleSheets={() => setIsGoogleSheetsOpen(true)}
-          onPushToGoogleSheets={handlePushToGoogleSheets}
+          onPushToGoogleSheets={permissions.canWriteGoogleSheets ? handlePushToGoogleSheets : undefined}
           onPullFromGoogleSheets={handlePullFromGoogleSheets}
           isGoogleSheetsConnected={Boolean(sheetConnection && isSheetReady)}
           isGoogleSheetsSyncing={isManualSheetSyncing}
           currentUser={currentUser}
+          userRole={userRole}
+          onLogout={handleLogout}
+          canManageTransactions={permissions.canManageTransactions}
           unreadCount={lowStockCount}
         />
 
@@ -600,7 +670,7 @@ export default function App() {
 
         {/* Dynamic Screen View */}
         <main className="flex-1 overflow-y-auto p-2 sm:p-4 md:p-6 bg-[#f8f9fa]">
-          {currentScreen === 'entry' && (
+          {currentScreen === 'entry' && permissions.canManageTransactions && (
             <DataEntryScreen
               items={items}
               weeks={weekCatalog}
@@ -623,6 +693,7 @@ export default function App() {
               onDeleteItem={handleDeleteItem}
               onOpenGoogleSheets={() => setIsGoogleSheetsOpen(true)}
               searchFilter={searchQuery}
+              canManageItems={permissions.canManageCatalog}
             />
           )}
 
@@ -633,6 +704,7 @@ export default function App() {
               onBack={() => setCurrentScreen('catalog')}
               onEdit={handleOpenEditItem}
               onViewAllHistory={() => setCurrentScreen('history')}
+              canEdit={permissions.canManageCatalog}
             />
           )}
 
@@ -698,6 +770,7 @@ export default function App() {
         onConnect={handleGoogleConnected}
         onSelectSpreadsheet={handleSelectGoogleSheet}
         onDisconnect={handleGoogleDisconnected}
+        canWrite={permissions.canWriteGoogleSheets}
       />
     </div>
   );

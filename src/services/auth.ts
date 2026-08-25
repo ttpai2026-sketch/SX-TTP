@@ -3,15 +3,43 @@ import {
   getAuth,
   signInWithPopup,
   GoogleAuthProvider,
+  browserLocalPersistence,
+  getIdTokenResult,
   onAuthStateChanged,
+  setPersistence,
   User
 } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
+import { AppPermissions, UserRole } from '../types';
 
 export type { User };
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+
+export const ROLE_LABELS: Record<UserRole, string> = {
+  admin: 'Quản trị viên',
+  operator: 'Nhân viên nhập liệu',
+  viewer: 'Chỉ xem'
+};
+
+export const ROLE_PERMISSIONS: Record<UserRole, AppPermissions> = {
+  admin: {
+    canManageCatalog: true,
+    canManageTransactions: true,
+    canWriteGoogleSheets: true
+  },
+  operator: {
+    canManageCatalog: false,
+    canManageTransactions: true,
+    canWriteGoogleSheets: true
+  },
+  viewer: {
+    canManageCatalog: false,
+    canManageTransactions: false,
+    canWriteGoogleSheets: false
+  }
+};
 
 const provider = new GoogleAuthProvider();
 // Workspace scopes requested by user
@@ -68,6 +96,16 @@ export const subscribeToAuthChanges = (
   });
 };
 
+export const getUserRole = async (user: User): Promise<UserRole> => {
+  const token = await getIdTokenResult(user, true);
+  const role = token.claims.role;
+  if (role === 'admin' || role === 'operator' || role === 'viewer') return role;
+
+  // Existing authenticated staff remain able to enter warehouse data until an
+  // administrator assigns an explicit Firebase custom claim.
+  return 'operator';
+};
+
 export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
@@ -90,6 +128,7 @@ export const initAuth = (
 export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
+    await setPersistence(auth, browserLocalPersistence);
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {

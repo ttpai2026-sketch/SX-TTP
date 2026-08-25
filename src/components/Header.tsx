@@ -1,7 +1,8 @@
 import React from 'react';
-import { ScreenType } from '../types';
-import { Search, Bell, User, Menu, FileSpreadsheet, Upload, Download, Loader2 } from 'lucide-react';
+import { ScreenType, UserRole } from '../types';
+import { Search, Bell, User, Menu, FileSpreadsheet, Upload, Download, Loader2, LogOut } from 'lucide-react';
 import { User as FirebaseUser } from 'firebase/auth';
+import { ROLE_LABELS } from '../services/auth';
 
 interface HeaderProps {
   currentScreen: ScreenType;
@@ -17,6 +18,9 @@ interface HeaderProps {
   isGoogleSheetsSyncing?: boolean;
   currentUser?: FirebaseUser | null;
   unreadCount?: number;
+  userRole?: UserRole;
+  onLogout?: () => void;
+  canManageTransactions?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -32,7 +36,10 @@ export const Header: React.FC<HeaderProps> = ({
   isGoogleSheetsConnected = false,
   isGoogleSheetsSyncing = false,
   currentUser,
-  unreadCount = 2
+  unreadCount = 2,
+  userRole = 'viewer',
+  onLogout,
+  canManageTransactions = false
 }) => {
   return (
     <header className="bg-white border-b border-[#c1c6d6] flex justify-between items-center w-full px-2 sm:px-4 md:px-6 h-14 shrink-0 sticky top-0 z-30 shadow-xs">
@@ -67,7 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
           >
             Danh Mục
           </button>
-          <button
+          {canManageTransactions && <button
             onClick={() => onNavigate('entry')}
             className={`pb-3 text-[12px] font-medium transition-colors cursor-pointer ${
               currentScreen === 'entry'
@@ -76,7 +83,7 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             Nhập Liệu
-          </button>
+          </button>}
           <button
             onClick={() => onNavigate('history')}
             className={`pb-3 text-[12px] font-medium transition-colors cursor-pointer ${
@@ -163,9 +170,12 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* User Info & Actions */}
         <div className="flex items-center gap-1 sm:gap-3 border-l border-[#c1c6d6] pl-1 sm:pl-4">
-          <span className="text-[12px] font-semibold text-[#191c1d] hidden sm:block truncate max-w-[100px]">
-            {currentUser?.displayName ? currentUser.displayName.split(' ')[0] : 'Hệ Thống'}
-          </span>
+          <div className="hidden sm:block max-w-[145px] leading-tight">
+            <div className="truncate text-[12px] font-semibold text-[#191c1d]">
+              {currentUser?.displayName || currentUser?.email || 'Hệ Thống'}
+            </div>
+            <div className="truncate text-[10px] font-semibold text-[#005bbf]">{ROLE_LABELS[userRole]}</div>
+          </div>
           <button
             id="btn-header-notifications"
             onClick={onOpenNotifications}
@@ -188,6 +198,16 @@ export const Header: React.FC<HeaderProps> = ({
               <User className="w-4 h-4 text-[#005bbf]" />
             )}
           </div>
+          {onLogout && (
+            <button
+              id="btn-system-logout"
+              onClick={onLogout}
+              className="rounded-full p-2 text-[#515f74] transition-colors hover:bg-[#ffdad6] hover:text-[#ba1a1a]"
+              title="Đăng xuất"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
     </header>

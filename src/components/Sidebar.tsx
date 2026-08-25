@@ -18,6 +18,7 @@ interface SidebarProps {
   onOpenHelp: () => void;
   isOpenMobile?: boolean;
   onCloseMobile?: () => void;
+  canManageTransactions?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -27,7 +28,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenGoogleSheets,
   onOpenHelp,
   isOpenMobile = false,
-  onCloseMobile
+  onCloseMobile,
+  canManageTransactions = false
 }) => {
   const menuItems: { id: ScreenType; label: string; icon: React.ReactNode }[] = [
     {
@@ -50,7 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Nhập Liệu',
       icon: <FileEdit className="w-5 h-5" />
     }
-  ];
+  ].filter((item) => item.id !== 'entry' || canManageTransactions);
 
   const content = (
     <div className="flex flex-col h-full p-4 bg-[#f3f4f5] border-r border-[#c1c6d6] text-[#191c1d]">
@@ -71,7 +73,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Action Button: Tạo Phiếu Mới */}
-      <button 
+      {canManageTransactions && <button
         id="btn-sidebar-create-slip"
         onClick={() => {
           onOpenNewSlip();
@@ -81,7 +83,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         <Plus className="w-4 h-4 stroke-[2.5]" />
         <span>Tạo Phiếu Mới</span>
-      </button>
+      </button>}
 
       {/* Google Sheets Sync Button */}
       <button 

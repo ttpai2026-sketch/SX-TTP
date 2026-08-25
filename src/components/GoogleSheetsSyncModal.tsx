@@ -37,6 +37,7 @@ interface GoogleSheetsSyncModalProps {
   onConnect: (user: User, accessToken: string, spreadsheetId?: string) => Promise<void>;
   onSelectSpreadsheet: (user: User, accessToken: string, spreadsheetId: string) => Promise<void>;
   onDisconnect: () => void;
+  canWrite?: boolean;
 }
 
 export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
@@ -49,7 +50,8 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
   currentUser,
   onConnect,
   onSelectSpreadsheet,
-  onDisconnect
+  onDisconnect,
+  canWrite = false
 }) => {
   const [spreadsheets, setSpreadsheets] = useState<GoogleDriveSpreadsheet[]>([]);
   const [selectedSpreadsheetId, setSelectedSpreadsheetId] = useState<string>(() =>
@@ -180,6 +182,10 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
 
   // 1. Create New Google Sheet
   const executeCreateNew = async () => {
+    if (!canWrite) {
+      setStatusMessage({ type: 'error', text: 'Chỉ quản trị viên hoặc nhân viên nhập liệu mới được tạo và ghi Google Sheets.' });
+      return;
+    }
     try {
       setIsProcessing(true);
       setStatusMessage(null);
@@ -223,6 +229,10 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
 
   // 2. Export / Sync To Selected Sheet
   const executeExportSync = async () => {
+    if (!canWrite) {
+      setStatusMessage({ type: 'error', text: 'Tài khoản của bạn không có quyền ghi dữ liệu lên Google Sheets.' });
+      return;
+    }
     try {
       if (!selectedSpreadsheetId) {
         setStatusMessage({
@@ -465,7 +475,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
                 >
                   Bảng Tính Trên Drive ({spreadsheets.length})
                 </button>
-                <button
+                {canWrite && <button
                   type="button"
                   onClick={() => setIsCreatingNew(true)}
                   className={`pb-2 px-3 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
@@ -475,7 +485,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
                   }`}
                 >
                   + Tạo Mới Bảng Tính
-                </button>
+                </button>}
               </div>
 
               {/* Tab 1: Existing Sheets */}
@@ -503,13 +513,13 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
                       ) : (
                         <div>
                           <p>Chưa tìm thấy file Google Sheet nào trong Drive của bạn.</p>
-                          <button
+                          {canWrite && <button
                             type="button"
                             onClick={() => setIsCreatingNew(true)}
                             className="mt-2 text-[#005bbf] font-bold hover:underline inline-flex items-center gap-1"
                           >
                             <Plus className="w-3.5 h-3.5" /> Tạo bảng tính Nhà Khuôn mới ngay
-                          </button>
+                          </button>}
                         </div>
                       )}
                     </div>
@@ -548,7 +558,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
 
                   {/* Actions on Existing Sheet */}
                   <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    <button
+                    {canWrite && <button
                       type="button"
                       disabled={isProcessing || !selectedSpreadsheetId}
                       onClick={() =>
@@ -562,7 +572,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
                     >
                       <Upload className="w-4 h-4" />
                       <span>App → Google Sheets</span>
-                    </button>
+                    </button>}
 
                     <button
                       type="button"
@@ -605,7 +615,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
                     </ul>
                   </div>
 
-                  <button
+                  {canWrite && <button
                     type="button"
                     disabled={isProcessing || !newSheetTitle.trim()}
                     onClick={() =>
@@ -619,7 +629,7 @@ export const GoogleSheetsSyncModal: React.FC<GoogleSheetsSyncModalProps> = ({
                   >
                     <Plus className="w-4 h-4" />
                     <span>Tạo File &amp; Đồng Bộ Ngay</span>
-                  </button>
+                  </button>}
                 </div>
               )}
             </div>
