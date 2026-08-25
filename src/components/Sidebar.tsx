@@ -18,6 +18,7 @@ interface SidebarProps {
   onOpenHelp: () => void;
   isOpenMobile?: boolean;
   onCloseMobile?: () => void;
+  canManageTransactions?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -27,7 +28,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenGoogleSheets,
   onOpenHelp,
   isOpenMobile = false,
-  onCloseMobile
+  onCloseMobile,
+  canManageTransactions = false
 }) => {
   const menuItems: { id: ScreenType; label: string; icon: React.ReactNode }[] = [
     {
@@ -50,7 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Nhập Liệu',
       icon: <FileEdit className="w-5 h-5" />
     }
-  ];
+  ].filter((item) => item.id !== 'entry' || canManageTransactions);
 
   const content = (
     <div className="flex flex-col h-full p-4 bg-[#f3f4f5] border-r border-[#c1c6d6] text-[#191c1d]">
@@ -71,7 +73,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Action Button: Tạo Phiếu Mới */}
-      <button 
+      {canManageTransactions && <button
         id="btn-sidebar-create-slip"
         onClick={() => {
           onOpenNewSlip();
@@ -81,7 +83,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         <Plus className="w-4 h-4 stroke-[2.5]" />
         <span>Tạo Phiếu Mới</span>
-      </button>
+      </button>}
 
       {/* Google Sheets Sync Button */}
       <button 
@@ -93,7 +95,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         className="w-full bg-white hover:bg-[#d5e3fc]/50 text-[#006c4a] border border-[#006c4a]/30 text-[13px] font-semibold tracking-wide py-2 px-3 rounded-lg flex items-center justify-center gap-2 transition-all shadow-2xs mb-4 cursor-pointer"
       >
         <FileSpreadsheet className="w-4 h-4 text-[#006c4a]" />
-        <span>Google Sheets Sync</span>
+        <span>Mở Google Sheet</span>
       </button>
 
       {/* Navigation List */}

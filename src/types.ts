@@ -1,5 +1,21 @@
 export type ScreenType = 'entry' | 'catalog' | 'detail' | 'report' | 'history';
 
+export type UserRole = 'admin' | 'operator' | 'viewer';
+
+export interface AppPermissions {
+  canManageCatalog: boolean;
+  canManageTransactions: boolean;
+  canWriteGoogleSheets: boolean;
+}
+
+export interface AccountCatalogItem {
+  email: string;
+  displayName: string;
+  role: UserRole;
+  status: 'Hoạt động' | 'Ngừng hoạt động';
+  notes: string;
+}
+
 export type CategoryType = 'Nguyên Liệu' | 'Hóa Chất' | 'Vật Tư' | 'Sản Phẩm';
 
 export interface TechSpecs {

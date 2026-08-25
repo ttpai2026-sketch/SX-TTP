@@ -19,6 +19,7 @@ interface ItemDetailScreenProps {
   onBack: () => void;
   onEdit: (item: InventoryItem) => void;
   onViewAllHistory?: () => void;
+  canEdit?: boolean;
 }
 
 export const ItemDetailScreen: React.FC<ItemDetailScreenProps> = ({
@@ -26,7 +27,8 @@ export const ItemDetailScreen: React.FC<ItemDetailScreenProps> = ({
   history,
   onBack,
   onEdit,
-  onViewAllHistory
+  onViewAllHistory,
+  canEdit = false
 }) => {
   const transactions = history.slice(0, 10).map((record) => ({
     id: record.id,
@@ -60,7 +62,7 @@ export const ItemDetailScreen: React.FC<ItemDetailScreenProps> = ({
           </p>
         </div>
 
-        <div className="flex gap-3 ml-9 sm:ml-0">
+        {canEdit && <div className="flex gap-3 ml-9 sm:ml-0">
           <button
             id="btn-edit-current-item"
             onClick={() => onEdit(item)}
@@ -69,7 +71,7 @@ export const ItemDetailScreen: React.FC<ItemDetailScreenProps> = ({
             <Edit3 className="w-4 h-4" />
             <span>Chỉnh sửa</span>
           </button>
-        </div>
+        </div>}
       </div>
 
       {/* Stats Row (3 Key Metric Cards) */}

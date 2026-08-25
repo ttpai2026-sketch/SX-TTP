@@ -21,6 +21,7 @@ interface CatalogScreenProps {
   onDeleteItem: (itemId: string) => void;
   onOpenGoogleSheets?: () => void;
   searchFilter?: string;
+  canManageItems?: boolean;
 }
 
 export const CatalogScreen: React.FC<CatalogScreenProps> = ({
@@ -30,7 +31,8 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
   onEditItem,
   onDeleteItem,
   onOpenGoogleSheets,
-  searchFilter = ''
+  searchFilter = '',
+  canManageItems = false
 }) => {
   const [searchTerm, setSearchTerm] = useState(searchFilter);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -131,7 +133,7 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
               className="bg-[#006c4a] hover:bg-[#004e35] text-white px-3.5 py-2 rounded text-[12px] font-semibold tracking-wider uppercase transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
             >
               <Download className="w-4 h-4 rotate-180" />
-              <span>Google Sheets Sync</span>
+              <span>Mở Google Sheet</span>
             </button>
           )}
 
@@ -144,14 +146,16 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
             <span>Xuất CSV</span>
           </button>
 
-          <button
-            id="btn-add-item-modal"
-            onClick={onOpenNewItemModal}
-            className="bg-[#005bbf] hover:bg-[#004493] text-white px-4 py-2 rounded text-[12px] font-semibold tracking-wider uppercase transition-opacity shadow-sm flex items-center gap-2 cursor-pointer active:scale-[0.98]"
-          >
-            <Plus className="w-4 h-4 stroke-[2.5]" />
-            <span>Thêm Mã Hàng Mới</span>
-          </button>
+          {canManageItems && (
+            <button
+              id="btn-add-item-modal"
+              onClick={onOpenNewItemModal}
+              className="bg-[#005bbf] hover:bg-[#004493] text-white px-4 py-2 rounded text-[12px] font-semibold tracking-wider uppercase transition-opacity shadow-sm flex items-center gap-2 cursor-pointer active:scale-[0.98]"
+            >
+              <Plus className="w-4 h-4 stroke-[2.5]" />
+              <span>Thêm Mã Hàng Mới</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -345,30 +349,34 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button
-                            id={`btn-edit-${item.id}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onEditItem(item);
-                            }}
-                            className="text-[#515f74] hover:text-[#005bbf] hover:bg-[#e7e8e9] p-1.5 rounded transition-colors"
-                            title="Chỉnh sửa"
-                          >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
-                          <button
-                            id={`btn-delete-${item.id}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (confirm(`Bạn có chắc muốn xóa mã hàng ${item.id} - ${item.name}?`)) {
-                                onDeleteItem(item.id);
-                              }
-                            }}
-                            className="text-[#515f74] hover:text-[#ba1a1a] hover:bg-[#ffdad6] p-1.5 rounded transition-colors"
-                            title="Xóa"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {canManageItems && (
+                            <>
+                              <button
+                                id={`btn-edit-${item.id}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onEditItem(item);
+                                }}
+                                className="text-[#515f74] hover:text-[#005bbf] hover:bg-[#e7e8e9] p-1.5 rounded transition-colors"
+                                title="Chỉnh sửa"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                id={`btn-delete-${item.id}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (confirm(`Bạn có chắc muốn xóa mã hàng ${item.id} - ${item.name}?`)) {
+                                    onDeleteItem(item.id);
+                                  }
+                                }}
+                                className="text-[#515f74] hover:text-[#ba1a1a] hover:bg-[#ffdad6] p-1.5 rounded transition-colors"
+                                title="Xóa"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
