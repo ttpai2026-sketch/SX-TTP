@@ -1,6 +1,6 @@
 import React from 'react';
 import { ScreenType, UserRole } from '../types';
-import { Search, Bell, User, Menu, FileSpreadsheet, Upload, Download, Loader2, LogOut } from 'lucide-react';
+import { Search, Bell, User, Menu, Upload, Download, Loader2, LogOut } from 'lucide-react';
 import { User as FirebaseUser } from 'firebase/auth';
 import { ROLE_LABELS } from '../services/auth';
 
@@ -11,7 +11,6 @@ interface HeaderProps {
   onSearchChange: (q: string) => void;
   onOpenNotifications: () => void;
   onOpenMobileMenu: () => void;
-  onOpenGoogleSheets?: () => void;
   onPushToGoogleSheets?: () => void;
   onPullFromGoogleSheets?: () => void;
   isGoogleSheetsSyncing?: boolean;
@@ -29,7 +28,6 @@ export const Header: React.FC<HeaderProps> = ({
   onSearchChange,
   onOpenNotifications,
   onOpenMobileMenu,
-  onOpenGoogleSheets,
   onPushToGoogleSheets,
   onPullFromGoogleSheets,
   isGoogleSheetsSyncing = false,
@@ -154,16 +152,6 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden lg:inline">Sheet → App</span>
             </button>
           )}
-          {onOpenGoogleSheets && (
-            <button
-              id="btn-header-google-sheets"
-              onClick={onOpenGoogleSheets}
-              className="p-1.5 border-l border-[#006c4a]/20 text-[#006c4a] hover:bg-[#85f8c4]/30 transition-colors"
-              title="Mở file Google Sheets cố định"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-            </button>
-          )}
         </div>
 
         {/* User Info & Actions */}
@@ -185,9 +173,8 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="absolute top-1 right-1 w-2 h-2 bg-[#ba1a1a] rounded-full ring-2 ring-white"></span>
             )}
           </button>
-          <div 
-            onClick={onOpenGoogleSheets}
-            className="w-8 h-8 rounded-full bg-[#d5e3fc] text-[#004493] flex items-center justify-center font-bold text-xs border border-[#adc7ff] cursor-pointer overflow-hidden"
+          <div
+            className="w-8 h-8 rounded-full bg-[#d5e3fc] text-[#004493] flex items-center justify-center font-bold text-xs border border-[#adc7ff] overflow-hidden"
             title={currentUser ? `Đã đăng nhập: ${currentUser.email}` : 'Tài khoản Google / Hệ thống'}
           >
             {currentUser?.photoURL ? (
