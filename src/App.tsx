@@ -12,11 +12,11 @@ import { NewItemModal } from './components/NewItemModal';
 import { NewSlipModal } from './components/NewSlipModal';
 import { HelpModal } from './components/HelpModal';
 import { NotificationModal } from './components/NotificationModal';
-import { GoogleSheetsSyncModal } from './components/GoogleSheetsSyncModal';
 import { LoginScreen } from './components/LoginScreen';
 import {
   getAccessToken,
   getUserRole,
+  googleSignIn,
   logout,
   ROLE_PERMISSIONS,
   subscribeToAuthChanges,
@@ -24,6 +24,7 @@ import {
 } from './services/auth';
 import {
   DEFAULT_SPREADSHEET_ID,
+  DEFAULT_SPREADSHEET_URL,
   createWeekCatalog,
   loadGoogleSheetData,
   syncToGoogleSheet
@@ -35,8 +36,6 @@ const getTodayIso = () => {
     .toISOString()
     .slice(0, 10);
 };
-
-const LAST_SPREADSHEET_KEY = 'nha_khuon_last_spreadsheet_id';
 
 const getShortWeekCode = (week: string) => {
   const match = week.trim().toUpperCase().match(/W\d{1,2}$/);
@@ -85,14 +84,12 @@ export default function App() {
 
       const accessToken = await getAccessToken();
       if (!accessToken) return;
-      const spreadsheetId = localStorage.getItem(LAST_SPREADSHEET_KEY) || DEFAULT_SPREADSHEET_ID;
-
       try {
-        const sheetData = await loadGoogleSheetData(accessToken, spreadsheetId);
+        const sheetData = await loadGoogleSheetData(accessToken, DEFAULT_SPREADSHEET_ID);
         setItems(sheetData.items);
         setHistoryRecords(sheetData.history);
         setWeekCatalog(sheetData.weeks);
-        setSheetConnection({ accessToken, spreadsheetId });
+        setSheetConnection({ accessToken, spreadsheetId: DEFAULT_SPREADSHEET_ID });
         setIsSheetReady(true);
       } catch (error) {
         console.error('Could not restore Google Sheets session:', error);
@@ -160,7 +157,11 @@ export default function App() {
         items,
         historyRecords,
         weekCatalog
-      ).catch((error) => console.error('Google Sheets auto-sync failed:', error));
+      ).catch((error) => {
+        console.error('Google Sheets auto-sync failed:', error);
+        setSheetConnection(null);
+        setIsSheetReady(false);
+      });
     }, 800);
     return () => window.clearTimeout(timeoutId);
   }, [historyRecords, isSheetReady, items, permissions.canWriteGoogleSheets, sheetConnection, weekCatalog]);
@@ -172,7 +173,6 @@ export default function App() {
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isGoogleSheetsOpen, setIsGoogleSheetsOpen] = useState(false);
   const [isManualSheetSyncing, setIsManualSheetSyncing] = useState(false);
   const [sheetSyncNotice, setSheetSyncNotice] = useState<{
     type: 'success' | 'error';
@@ -259,39 +259,24 @@ export default function App() {
     setWeekCatalog(importedWeeks);
   };
 
-  const handleGoogleConnected = async (
-    user: User,
-    accessToken: string,
-    spreadsheetId = DEFAULT_SPREADSHEET_ID
-  ) => {
-    setCurrentUser(user);
-    setIsSheetReady(false);
-    const sheetData = await loadGoogleSheetData(accessToken, spreadsheetId);
-    handleImportDataFromSheet(sheetData.items, sheetData.history, sheetData.weeks);
+  const authorizeFixedGoogleSheet = async () => {
+    if (sheetConnection) return sheetConnection;
 
-    setSheetConnection({ accessToken, spreadsheetId });
-    localStorage.setItem(LAST_SPREADSHEET_KEY, spreadsheetId);
-    setIsSheetReady(true);
+    let accessToken = await getAccessToken();
+    if (!accessToken) {
+      const authResult = await googleSignIn();
+      accessToken = authResult?.accessToken || null;
+      if (authResult?.user) setCurrentUser(authResult.user);
+    }
+    if (!accessToken) {
+      throw new Error('Không thể xác thực quyền truy cập Google Sheets.');
+    }
+
+    return { accessToken, spreadsheetId: DEFAULT_SPREADSHEET_ID };
   };
 
-  const handleGoogleDisconnected = () => {
-    setCurrentUser(null);
-    setUserRole(null);
-    setSheetConnection(null);
-    setIsSheetReady(false);
-  };
-
-  const handleSelectGoogleSheet = async (
-    user: User,
-    accessToken: string,
-    spreadsheetId: string
-  ) => {
-    const sheetData = await loadGoogleSheetData(accessToken, spreadsheetId);
-    setCurrentUser(user);
-    handleImportDataFromSheet(sheetData.items, sheetData.history, sheetData.weeks);
-    setSheetConnection({ accessToken, spreadsheetId });
-    localStorage.setItem(LAST_SPREADSHEET_KEY, spreadsheetId);
-    setIsSheetReady(true);
+  const handleOpenFixedGoogleSheet = () => {
+    window.open(DEFAULT_SPREADSHEET_URL, '_blank', 'noopener,noreferrer');
   };
 
   const showSheetSyncNotice = (type: 'success' | 'error', text: string) => {
@@ -304,23 +289,24 @@ export default function App() {
       showSheetSyncNotice('error', 'Tài khoản của bạn chỉ có quyền xem, không thể ghi dữ liệu lên Google Sheets.');
       return;
     }
-    if (!sheetConnection) {
-      setIsGoogleSheetsOpen(true);
-      return;
-    }
     if (!window.confirm('Đẩy toàn bộ dữ liệu hiện tại từ App lên Google Sheets? Dữ liệu các bảng liên kết sẽ được cập nhật.')) return;
 
     try {
       setIsManualSheetSyncing(true);
+      const connection = await authorizeFixedGoogleSheet();
       await syncToGoogleSheet(
-        sheetConnection.accessToken,
-        sheetConnection.spreadsheetId,
+        connection.accessToken,
+        DEFAULT_SPREADSHEET_ID,
         items,
         historyRecords,
         weekCatalog
       );
+      setSheetConnection(connection);
+      setIsSheetReady(true);
       showSheetSyncNotice('success', `Đã cập nhật ${items.length} mã hàng và ${historyRecords.length} giao dịch lên Google Sheets.`);
     } catch (error: any) {
+      setSheetConnection(null);
+      setIsSheetReady(false);
       showSheetSyncNotice('error', error.message || 'Không thể cập nhật dữ liệu lên Google Sheets.');
     } finally {
       setIsManualSheetSyncing(false);
@@ -328,21 +314,22 @@ export default function App() {
   };
 
   const handlePullFromGoogleSheets = async () => {
-    if (!sheetConnection) {
-      setIsGoogleSheetsOpen(true);
-      return;
-    }
     if (!window.confirm('Tải dữ liệu mới nhất từ Google Sheets? Dữ liệu đang hiển thị trong App sẽ được thay thế.')) return;
 
     try {
       setIsManualSheetSyncing(true);
+      const connection = await authorizeFixedGoogleSheet();
       const sheetData = await loadGoogleSheetData(
-        sheetConnection.accessToken,
-        sheetConnection.spreadsheetId
+        connection.accessToken,
+        DEFAULT_SPREADSHEET_ID
       );
       handleImportDataFromSheet(sheetData.items, sheetData.history, sheetData.weeks);
+      setSheetConnection(connection);
+      setIsSheetReady(true);
       showSheetSyncNotice('success', `Đã tải ${sheetData.items.length} mã hàng, ${sheetData.weeks.length} kỳ tuần và ${sheetData.history.length} giao dịch vào App.`);
     } catch (error: any) {
+      setSheetConnection(null);
+      setIsSheetReady(false);
       showSheetSyncNotice('error', error.message || 'Không thể tải dữ liệu từ Google Sheets.');
     } finally {
       setIsManualSheetSyncing(false);
@@ -350,18 +337,16 @@ export default function App() {
   };
 
   const handleLoadEntryWeekFromSheet = async (week: string): Promise<HistoryRecord[]> => {
-    if (!sheetConnection || !isSheetReady) {
-      setIsGoogleSheetsOpen(true);
-      throw new Error('Vui lòng kết nối Google Sheets trước khi tải dữ liệu tuần.');
-    }
-
     try {
       setIsManualSheetSyncing(true);
+      const connection = await authorizeFixedGoogleSheet();
       const sheetData = await loadGoogleSheetData(
-        sheetConnection.accessToken,
-        sheetConnection.spreadsheetId
+        connection.accessToken,
+        DEFAULT_SPREADSHEET_ID
       );
       handleImportDataFromSheet(sheetData.items, sheetData.history, sheetData.weeks);
+      setSheetConnection(connection);
+      setIsSheetReady(true);
       const weekRecords = sheetData.history
         .filter((record) => isSameWeek(record.week, week))
         .map((record) => ({ ...record, week }));
@@ -371,6 +356,8 @@ export default function App() {
       );
       return weekRecords;
     } catch (error: any) {
+      setSheetConnection(null);
+      setIsSheetReady(false);
       showSheetSyncNotice('error', error.message || 'Không thể tải dữ liệu tuần từ Google Sheets.');
       throw error;
     } finally {
@@ -444,10 +431,7 @@ export default function App() {
     if (!permissions.canManageTransactions || !permissions.canWriteGoogleSheets) {
       throw new Error('Tài khoản của bạn không có quyền cập nhật dữ liệu tuần.');
     }
-    if (!sheetConnection || !isSheetReady) {
-      setIsGoogleSheetsOpen(true);
-      throw new Error('Vui lòng kết nối Google Sheets trước khi cập nhật dữ liệu tuần.');
-    }
+    const connection = await authorizeFixedGoogleSheet();
 
     const sourceIdSet = new Set(sourceRecordIds);
     const oldEntries = historyRecords.filter((record) => sourceIdSet.has(record.id));
@@ -510,17 +494,21 @@ export default function App() {
     try {
       setIsManualSheetSyncing(true);
       await syncToGoogleSheet(
-        sheetConnection.accessToken,
-        sheetConnection.spreadsheetId,
+        connection.accessToken,
+        DEFAULT_SPREADSHEET_ID,
         nextItems,
         nextHistoryRecords,
         weekCatalog
       );
+      setSheetConnection(connection);
+      setIsSheetReady(true);
       setHistoryRecords(nextHistoryRecords);
       setItems(nextItems);
       showSheetSyncNotice('success', `Đã cập nhật tuần ${week} lên Google Sheets và đồng bộ lại App.`);
       return replacementEntries;
     } catch (error: any) {
+      setSheetConnection(null);
+      setIsSheetReady(false);
       showSheetSyncNotice('error', error.message || `Không thể cập nhật tuần ${week} lên Google Sheets.`);
       throw error;
     } finally {
@@ -605,7 +593,6 @@ export default function App() {
     setUserRole(null);
     setSheetConnection(null);
     setIsSheetReady(false);
-    setIsGoogleSheetsOpen(false);
   };
 
   if (isAuthLoading) {
@@ -621,7 +608,7 @@ export default function App() {
         currentScreen={currentScreen}
         onNavigate={handleNavigate}
         onOpenNewSlip={() => setIsNewSlipModalOpen(true)}
-        onOpenGoogleSheets={() => setIsGoogleSheetsOpen(true)}
+        onOpenGoogleSheets={handleOpenFixedGoogleSheet}
         onOpenHelp={() => setIsHelpModalOpen(true)}
         isOpenMobile={isMobileMenuOpen}
         onCloseMobile={() => setIsMobileMenuOpen(false)}
@@ -643,10 +630,9 @@ export default function App() {
           }}
           onOpenNotifications={() => setIsNotificationsOpen(true)}
           onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
-          onOpenGoogleSheets={() => setIsGoogleSheetsOpen(true)}
+          onOpenGoogleSheets={handleOpenFixedGoogleSheet}
           onPushToGoogleSheets={permissions.canWriteGoogleSheets ? handlePushToGoogleSheets : undefined}
           onPullFromGoogleSheets={handlePullFromGoogleSheets}
-          isGoogleSheetsConnected={Boolean(sheetConnection && isSheetReady)}
           isGoogleSheetsSyncing={isManualSheetSyncing}
           currentUser={currentUser}
           userRole={userRole}
@@ -691,7 +677,7 @@ export default function App() {
               }}
               onEditItem={handleOpenEditItem}
               onDeleteItem={handleDeleteItem}
-              onOpenGoogleSheets={() => setIsGoogleSheetsOpen(true)}
+              onOpenGoogleSheets={handleOpenFixedGoogleSheet}
               searchFilter={searchQuery}
               canManageItems={permissions.canManageCatalog}
             />
@@ -714,7 +700,7 @@ export default function App() {
               history={historyRecords}
               weeks={weekCatalog}
               onNavigateToDetail={handleSelectItemDetail}
-              onOpenGoogleSheets={() => setIsGoogleSheetsOpen(true)}
+              onOpenGoogleSheets={handleOpenFixedGoogleSheet}
             />
           )}
 
@@ -758,20 +744,6 @@ export default function App() {
         onSelectItem={handleSelectItemDetail}
       />
 
-      {/* Google Sheets Sync & Workspace Modal */}
-      <GoogleSheetsSyncModal
-        isOpen={isGoogleSheetsOpen}
-        onClose={() => setIsGoogleSheetsOpen(false)}
-        items={items}
-        history={historyRecords}
-        weeks={weekCatalog}
-        onImportData={handleImportDataFromSheet}
-        currentUser={currentUser}
-        onConnect={handleGoogleConnected}
-        onSelectSpreadsheet={handleSelectGoogleSheet}
-        onDisconnect={handleGoogleDisconnected}
-        canWrite={permissions.canWriteGoogleSheets}
-      />
     </div>
   );
 }

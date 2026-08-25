@@ -14,7 +14,6 @@ interface HeaderProps {
   onOpenGoogleSheets?: () => void;
   onPushToGoogleSheets?: () => void;
   onPullFromGoogleSheets?: () => void;
-  isGoogleSheetsConnected?: boolean;
   isGoogleSheetsSyncing?: boolean;
   currentUser?: FirebaseUser | null;
   unreadCount?: number;
@@ -33,7 +32,6 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenGoogleSheets,
   onPushToGoogleSheets,
   onPullFromGoogleSheets,
-  isGoogleSheetsConnected = false,
   isGoogleSheetsSyncing = false,
   currentUser,
   unreadCount = 2,
@@ -138,7 +136,7 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={onPushToGoogleSheets}
               disabled={isGoogleSheetsSyncing}
               className="flex items-center gap-1.5 px-2.5 py-1.5 text-[#004e35] hover:bg-[#85f8c4]/30 text-xs font-semibold transition-colors disabled:opacity-50"
-              title={isGoogleSheetsConnected ? 'Đẩy dữ liệu từ App lên Google Sheets' : 'Kết nối Google Sheets để đồng bộ'}
+              title="Đẩy dữ liệu từ App vào file Google Sheets cố định"
             >
               {isGoogleSheetsSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
               <span className="hidden lg:inline">App → Sheet</span>
@@ -150,7 +148,7 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={onPullFromGoogleSheets}
               disabled={isGoogleSheetsSyncing}
               className="flex items-center gap-1.5 px-2.5 py-1.5 border-l border-[#006c4a]/20 text-[#005bbf] hover:bg-[#d5e3fc]/40 text-xs font-semibold transition-colors disabled:opacity-50"
-              title={isGoogleSheetsConnected ? 'Tải dữ liệu mới nhất từ Google Sheets vào App' : 'Kết nối Google Sheets để đồng bộ'}
+              title="Tải dữ liệu mới nhất từ file Google Sheets cố định vào App"
             >
               <Download className="w-3.5 h-3.5" />
               <span className="hidden lg:inline">Sheet → App</span>
@@ -161,7 +159,7 @@ export const Header: React.FC<HeaderProps> = ({
               id="btn-header-google-sheets"
               onClick={onOpenGoogleSheets}
               className="p-1.5 border-l border-[#006c4a]/20 text-[#006c4a] hover:bg-[#85f8c4]/30 transition-colors"
-              title="Cài đặt kết nối Google Sheets"
+              title="Mở file Google Sheets cố định"
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
             </button>

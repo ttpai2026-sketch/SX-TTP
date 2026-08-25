@@ -133,7 +133,7 @@ export const CatalogScreen: React.FC<CatalogScreenProps> = ({
               className="bg-[#006c4a] hover:bg-[#004e35] text-white px-3.5 py-2 rounded text-[12px] font-semibold tracking-wider uppercase transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
             >
               <Download className="w-4 h-4 rotate-180" />
-              <span>Google Sheets Sync</span>
+              <span>Mở Google Sheet</span>
             </button>
           )}
 

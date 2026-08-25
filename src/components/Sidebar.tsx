@@ -95,7 +95,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         className="w-full bg-white hover:bg-[#d5e3fc]/50 text-[#006c4a] border border-[#006c4a]/30 text-[13px] font-semibold tracking-wide py-2 px-3 rounded-lg flex items-center justify-center gap-2 transition-all shadow-2xs mb-4 cursor-pointer"
       >
         <FileSpreadsheet className="w-4 h-4 text-[#006c4a]" />
-        <span>Google Sheets Sync</span>
+        <span>Mở Google Sheet</span>
       </button>
 
       {/* Navigation List */}
