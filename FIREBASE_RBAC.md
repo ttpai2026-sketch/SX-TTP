@@ -1,6 +1,6 @@
 # Phân quyền người dùng Firebase
 
-Ứng dụng đọc vai trò từ Firebase Authentication custom claim `role`.
+Ứng dụng ưu tiên đọc vai trò theo email từ tab `Danh Mục Tài Khoản` trong Google Sheets. Firebase Authentication custom claim `role` là lớp dự phòng khi tab chưa có tài khoản hợp lệ.
 
 | Vai trò | Quyền |
 | --- | --- |
@@ -9,6 +9,18 @@
 | `viewer` | Chỉ xem và tải dữ liệu từ Google Sheets |
 
 Tài khoản đã đăng nhập nhưng chưa có claim được giữ ở vai trò `operator` để không làm gián đoạn quy trình nhập liệu hiện tại. Khi không đọc được claim, App hạ quyền về `viewer`.
+
+## Quản lý trong Google Sheets
+
+Tab `Danh Mục Tài Khoản` gồm các cột:
+
+- `Email`: email Google dùng để đăng nhập App.
+- `Tên Hiển Thị`: tên nhân viên.
+- `Vai Trò`: chọn `admin`, `operator` hoặc `viewer`.
+- `Trạng Thái`: `Hoạt động` hoặc `Ngừng hoạt động`.
+- `Ghi Chú`: thông tin nội bộ tùy chọn.
+
+Khi tab đã có ít nhất một email hợp lệ, tài khoản không nằm trong danh sách hoặc đã ngừng hoạt động sẽ chỉ có quyền `viewer`. Sau khi sửa danh mục, bấm `Sheet → App` hoặc đăng nhập lại để áp dụng quyền mới.
 
 ## Gán vai trò
 

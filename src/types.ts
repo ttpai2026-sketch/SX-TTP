@@ -8,6 +8,14 @@ export interface AppPermissions {
   canWriteGoogleSheets: boolean;
 }
 
+export interface AccountCatalogItem {
+  email: string;
+  displayName: string;
+  role: UserRole;
+  status: 'Hoạt động' | 'Ngừng hoạt động';
+  notes: string;
+}
+
 export type CategoryType = 'Nguyên Liệu' | 'Hóa Chất' | 'Vật Tư' | 'Sản Phẩm';
 
 export interface TechSpecs {

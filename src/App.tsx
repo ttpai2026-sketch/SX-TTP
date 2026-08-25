@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ScreenType, InventoryItem, HistoryRecord, WeekCatalogItem, UserRole } from './types';
+import { AccountCatalogItem, ScreenType, InventoryItem, HistoryRecord, WeekCatalogItem, UserRole } from './types';
 import { INITIAL_ITEMS, INITIAL_HISTORY } from './mockData';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -49,6 +49,20 @@ const isSameWeek = (recordWeek: string, selectedWeek: string) => {
     normalizedRecordWeek === getShortWeekCode(normalizedSelectedWeek);
 };
 
+const resolveAccountCatalogRole = (
+  accounts: AccountCatalogItem[],
+  email: string | null,
+  fallbackRole: UserRole
+): UserRole => {
+  const configuredAccounts = accounts.filter((account) => account.email);
+  if (configuredAccounts.length === 0) return fallbackRole;
+
+  const normalizedEmail = (email || '').trim().toLowerCase();
+  const account = configuredAccounts.find((candidate) => candidate.email === normalizedEmail);
+  if (!account || account.status !== 'Hoạt động') return 'viewer';
+  return account.role;
+};
+
 export default function App() {
   // Auth state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -73,8 +87,10 @@ export default function App() {
         return;
       }
 
+      let fallbackRole: UserRole = 'viewer';
       try {
-        setUserRole(await getUserRole(user));
+        fallbackRole = await getUserRole(user);
+        setUserRole(fallbackRole);
       } catch (error) {
         console.error('Could not read Firebase role claim:', error);
         setUserRole('viewer');
@@ -89,6 +105,7 @@ export default function App() {
         setItems(sheetData.items);
         setHistoryRecords(sheetData.history);
         setWeekCatalog(sheetData.weeks);
+        setUserRole(resolveAccountCatalogRole(sheetData.accounts, user.email, fallbackRole));
         setSheetConnection({ accessToken, spreadsheetId: DEFAULT_SPREADSHEET_ID });
         setIsSheetReady(true);
       } catch (error) {
@@ -324,6 +341,7 @@ export default function App() {
         DEFAULT_SPREADSHEET_ID
       );
       handleImportDataFromSheet(sheetData.items, sheetData.history, sheetData.weeks);
+      setUserRole(resolveAccountCatalogRole(sheetData.accounts, currentUser?.email || null, userRole || 'viewer'));
       setSheetConnection(connection);
       setIsSheetReady(true);
       showSheetSyncNotice('success', `Đã tải ${sheetData.items.length} mã hàng, ${sheetData.weeks.length} kỳ tuần và ${sheetData.history.length} giao dịch vào App.`);
@@ -345,6 +363,7 @@ export default function App() {
         DEFAULT_SPREADSHEET_ID
       );
       handleImportDataFromSheet(sheetData.items, sheetData.history, sheetData.weeks);
+      setUserRole(resolveAccountCatalogRole(sheetData.accounts, currentUser?.email || null, userRole || 'viewer'));
       setSheetConnection(connection);
       setIsSheetReady(true);
       const weekRecords = sheetData.history

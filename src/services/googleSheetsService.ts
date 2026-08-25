@@ -1,4 +1,4 @@
-import { InventoryItem, HistoryRecord, WeekCatalogItem } from '../types';
+import { AccountCatalogItem, InventoryItem, HistoryRecord, WeekCatalogItem } from '../types';
 
 export const DEFAULT_SPREADSHEET_ID = '1SF6tZwcM9KQyNNL2K5W2ZL5U-vcFXTZliWaSpjb048k';
 export const DEFAULT_SPREADSHEET_URL = `https://docs.google.com/spreadsheets/d/${DEFAULT_SPREADSHEET_ID}/edit`;
@@ -6,6 +6,7 @@ const INVENTORY_SHEET = 'TonKho_TongHop';
 const HISTORY_SHEET = 'LichSu_NhapXuat';
 const PRODUCT_CATALOG_SHEET = 'Danh Mục Sản Phẩm';
 const WEEK_CATALOG_SHEET = 'Danh Mục Tuần';
+const ACCOUNT_CATALOG_SHEET = 'Danh Mục Tài Khoản';
 
 const productCatalogHeaders = [
   'Mã Hàng',
@@ -733,15 +734,51 @@ export async function importWeekCatalog(
   return weeks.length > 0 ? weeks : createWeekCatalog();
 }
 
+export async function importAccountCatalog(
+  accessToken: string,
+  spreadsheetId: string
+): Promise<AccountCatalogItem[]> {
+  const range = encodeURIComponent(`${quoteSheetTitle(ACCOUNT_CATALOG_SHEET)}!A1:E`);
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (response.status === 400) return [];
+  if (!response.ok) {
+    throw new Error(await readGoogleError(response, 'Không thể đọc danh mục tài khoản'));
+  }
+
+  const payload = await response.json();
+  const rows: Array<Array<string | number>> = payload.values || [];
+  return rows.slice(1).flatMap((row) => {
+    const email = String(row[0] || '').trim().toLowerCase();
+    const rawRole = String(row[2] || '').trim().toLowerCase();
+    if (!email || !['admin', 'operator', 'viewer'].includes(rawRole)) return [];
+    const role = rawRole as AccountCatalogItem['role'];
+    const status: AccountCatalogItem['status'] = row[3] === 'Ngừng hoạt động'
+      ? 'Ngừng hoạt động'
+      : 'Hoạt động';
+
+    return [{
+      email,
+      displayName: String(row[1] || '').trim(),
+      role,
+      status,
+      notes: String(row[4] || '').trim()
+    }];
+  });
+}
+
 export async function loadGoogleSheetData(
   accessToken: string,
   spreadsheetId = DEFAULT_SPREADSHEET_ID
-): Promise<{ items: InventoryItem[]; history: HistoryRecord[]; weeks: WeekCatalogItem[] }> {
-  const [inventoryItems, history, catalogItems, weeks] = await Promise.all([
+): Promise<{ items: InventoryItem[]; history: HistoryRecord[]; weeks: WeekCatalogItem[]; accounts: AccountCatalogItem[] }> {
+  const [inventoryItems, history, catalogItems, weeks, accounts] = await Promise.all([
     importFromGoogleSheet(accessToken, spreadsheetId),
     importHistoryFromGoogleSheet(accessToken, spreadsheetId),
     importProductCatalog(accessToken, spreadsheetId),
-    importWeekCatalog(accessToken, spreadsheetId)
+    importWeekCatalog(accessToken, spreadsheetId),
+    importAccountCatalog(accessToken, spreadsheetId)
   ]);
   const inventoryById = new Map(inventoryItems.map((item) => [item.id, item]));
   const items = catalogItems.length === 0
@@ -762,5 +799,5 @@ export async function loadGoogleSheetData(
           (item) => !catalogItems.some((catalogItem) => catalogItem.id === item.id)
         )
       ];
-  return { items, history, weeks };
+  return { items, history, weeks, accounts };
 }
